@@ -524,3 +524,89 @@ clean_2023_24.to_csv(
 )
 
 print("Clean 2023/24 dataset saved successfully.")
+
+
+print("\n")
+
+# LOAD CLEAN 2023/24 DATASET
+clean_2023_24 = pd.read_csv(
+    "champions_league_2023_24_clean.csv"
+)
+
+
+# LOAD CLEAN 2024/25 DATASET
+clean_2024_25 = pd.read_csv(
+    "champions_league_2024_25_clean.csv"
+)
+
+
+# CHECK DATASET SHAPES
+print("2023/24 Shape:", clean_2023_24.shape)
+print("2024/25 Shape:", clean_2024_25.shape)
+
+
+# CHECK COLUMN NAMES
+print("\n2023/24 Columns:")
+print(clean_2023_24.columns.tolist())
+
+print("\n2024/25 Columns:")
+print(clean_2024_25.columns.tolist())
+
+
+# CHECK WHETHER THE COLUMN STRUCTURES ARE IDENTICAL
+print(
+    "\nColumns identical:",
+    list(clean_2023_24.columns) == list(clean_2024_25.columns)
+)
+
+
+# CHECK RESULT VALUES
+print("\n2023/24 Results:")
+print(sorted(clean_2023_24["result"].unique()))
+
+print("\n2024/25 Results:")
+print(sorted(clean_2024_25["result"].unique()))
+
+
+print("\n")
+
+# COMBINE 2023/24 AND 2024/25
+
+combined_df = pd.concat(
+    [clean_2023_24, clean_2024_25],
+    ignore_index=True
+)
+
+
+# CHECK COMBINED DATASET
+print("Combined Dataset Shape:", combined_df.shape)
+
+print("\nColumns:")
+print(combined_df.columns.tolist())
+
+print("\nFirst 5 rows:")
+print(combined_df.head())
+
+print("\nLast 5 rows:")
+print(combined_df.tail())
+
+
+print("\n")
+
+# CHECK FOR DUPLICATE MATCHES
+duplicates = combined_df.duplicated(
+    subset=["season", "date", "home_team", "away_team"],
+    keep=False
+)
+
+print("Number of duplicate rows:", duplicates.sum())
+
+
+# CHECK DATE RANGE
+print("Earliest match:", combined_df["date"].min())
+print("Latest match:", combined_df["date"].max())
+
+
+# CHECK MATCH COUNT BY SEASON
+print("\nMatches by season:")
+print(combined_df["season"].value_counts().sort_index())
