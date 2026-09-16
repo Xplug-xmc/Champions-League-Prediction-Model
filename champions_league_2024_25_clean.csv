@@ -1,0 +1,190 @@
+season,round,date,home_team,home_goals,away_goals,away_team,result
+2024/25,League phase,2024-09-17,Young Boys,0,3,Aston Villa,A
+2024/25,League phase,2024-09-17,Juventus,3,1,PSV,H
+2024/25,League phase,2024-09-17,Sporting CP,2,0,Lille,H
+2024/25,League phase,2024-09-17,Real Madrid,3,1,Stuttgart,H
+2024/25,League phase,2024-09-17,Milan,1,3,Liverpool,A
+2024/25,League phase,2024-09-17,Bayern Munich,9,2,Dinamo Zagreb,H
+2024/25,League phase,2024-09-18,Bologna,0,0,Shakhtar D.,D
+2024/25,League phase,2024-09-18,Sparta Prague,3,0,RB Salzburg,H
+2024/25,League phase,2024-09-18,Celtic,5,1,Slovan Bratislava,H
+2024/25,League phase,2024-09-18,Manchester City,0,0,Inter,D
+2024/25,League phase,2024-09-18,Paris SG,1,0,Girona,H
+2024/25,League phase,2024-09-18,Club Brugge,0,3,Dortmund,A
+2024/25,League phase,2024-09-19,Feyenoord,0,4,Leverkusen,A
+2024/25,League phase,2024-09-19,Red Star,1,2,Benfica,A
+2024/25,League phase,2024-09-19,Atalanta,0,0,Arsenal,D
+2024/25,League phase,2024-09-19,Brest,2,1,Sturm Graz,H
+2024/25,League phase,2024-09-19,Monaco,2,1,Barcelona,H
+2024/25,League phase,2024-09-19,Atlético Madrid,2,1,RB Leipzig,H
+2024/25,League phase,2024-10-01,Stuttgart,1,1,Sparta Prague,D
+2024/25,League phase,2024-10-01,RB Salzburg,0,4,Brest,A
+2024/25,League phase,2024-10-01,Arsenal,2,0,Paris SG,H
+2024/25,League phase,2024-10-01,Inter,4,0,Red Star,H
+2024/25,League phase,2024-10-01,Leverkusen,1,0,Milan,H
+2024/25,League phase,2024-10-01,Dortmund,7,1,Celtic,H
+2024/25,League phase,2024-10-01,Barcelona,5,0,Young Boys,H
+2024/25,League phase,2024-10-01,PSV,1,1,Sporting CP,D
+2024/25,League phase,2024-10-01,Slovan Bratislava,0,4,Manchester City,A
+2024/25,League phase,2024-10-02,Girona,2,3,Feyenoord,A
+2024/25,League phase,2024-10-02,Shakhtar D.,0,3,Atalanta,A
+2024/25,League phase,2024-10-02,Aston Villa,1,0,Bayern Munich,H
+2024/25,League phase,2024-10-02,Liverpool,2,0,Bologna,H
+2024/25,League phase,2024-10-02,Benfica,4,0,Atlético Madrid,H
+2024/25,League phase,2024-10-02,RB Leipzig,2,3,Juventus,A
+2024/25,League phase,2024-10-02,Lille,1,0,Real Madrid,H
+2024/25,League phase,2024-10-02,Sturm Graz,0,1,Club Brugge,A
+2024/25,League phase,2024-10-02,Dinamo Zagreb,2,2,Monaco,D
+2024/25,League phase,2024-10-22,Monaco,5,1,Red Star,H
+2024/25,League phase,2024-10-22,Milan,3,1,Club Brugge,H
+2024/25,League phase,2024-10-22,Arsenal,1,0,Shakhtar D.,H
+2024/25,League phase,2024-10-22,Aston Villa,2,0,Bologna,H
+2024/25,League phase,2024-10-22,Juventus,0,1,Stuttgart,A
+2024/25,League phase,2024-10-22,Sturm Graz,0,2,Sporting CP,A
+2024/25,League phase,2024-10-22,Paris SG,1,1,PSV,D
+2024/25,League phase,2024-10-22,Real Madrid,5,2,Dortmund,H
+2024/25,League phase,2024-10-22,Girona,2,0,Slovan Bratislava,H
+2024/25,League phase,2024-10-23,Brest,1,1,Leverkusen,D
+2024/25,League phase,2024-10-23,Atalanta,0,0,Celtic,D
+2024/25,League phase,2024-10-23,Benfica,1,3,Feyenoord,A
+2024/25,League phase,2024-10-23,Manchester City,5,0,Sparta Prague,H
+2024/25,League phase,2024-10-23,RB Salzburg,0,2,Dinamo Zagreb,A
+2024/25,League phase,2024-10-23,Barcelona,4,1,Bayern Munich,H
+2024/25,League phase,2024-10-23,RB Leipzig,0,1,Liverpool,A
+2024/25,League phase,2024-10-23,Atlético Madrid,1,3,Lille,A
+2024/25,League phase,2024-10-23,Young Boys,0,1,Inter,A
+2024/25,League phase,2024-11-05,Slovan Bratislava,1,4,Dinamo Zagreb,A
+2024/25,League phase,2024-11-05,PSV,4,0,Girona,H
+2024/25,League phase,2024-11-05,Sporting CP,4,1,Manchester City,H
+2024/25,League phase,2024-11-05,Liverpool,4,0,Leverkusen,H
+2024/25,League phase,2024-11-05,Celtic,3,1,RB Leipzig,H
+2024/25,League phase,2024-11-05,Bologna,0,1,Monaco,A
+2024/25,League phase,2024-11-05,Real Madrid,1,3,Milan,A
+2024/25,League phase,2024-11-05,Lille,1,1,Juventus,D
+2024/25,League phase,2024-11-05,Dortmund,1,0,Sturm Graz,H
+2024/25,League phase,2024-11-06,Club Brugge,1,0,Aston Villa,H
+2024/25,League phase,2024-11-06,Shakhtar D.,2,1,Young Boys,H
+2024/25,League phase,2024-11-06,Bayern Munich,1,0,Benfica,H
+2024/25,League phase,2024-11-06,Feyenoord,1,3,RB Salzburg,A
+2024/25,League phase,2024-11-06,Inter,1,0,Arsenal,H
+2024/25,League phase,2024-11-06,Stuttgart,0,2,Atalanta,A
+2024/25,League phase,2024-11-06,Red Star,2,5,Barcelona,A
+2024/25,League phase,2024-11-06,Sparta Prague,1,2,Brest,A
+2024/25,League phase,2024-11-06,Paris SG,1,2,Atlético Madrid,A
+2024/25,League phase,2024-11-26,Slovan Bratislava,2,3,Milan,A
+2024/25,League phase,2024-11-26,Sparta Prague,0,6,Atlético Madrid,A
+2024/25,League phase,2024-11-26,Sporting CP,1,5,Arsenal,A
+2024/25,League phase,2024-11-26,Manchester City,3,3,Feyenoord,D
+2024/25,League phase,2024-11-26,Inter,1,0,RB Leipzig,H
+2024/25,League phase,2024-11-26,Leverkusen,5,0,RB Salzburg,H
+2024/25,League phase,2024-11-26,Bayern Munich,1,0,Paris SG,H
+2024/25,League phase,2024-11-26,Young Boys,1,6,Atalanta,A
+2024/25,League phase,2024-11-26,Barcelona,3,0,Brest,H
+2024/25,League phase,2024-11-27,Red Star,5,1,Stuttgart,H
+2024/25,League phase,2024-11-27,Sturm Graz,1,0,Girona,H
+2024/25,League phase,2024-11-27,Aston Villa,0,0,Juventus,D
+2024/25,League phase,2024-11-27,Celtic,1,1,Club Brugge,D
+2024/25,League phase,2024-11-27,Liverpool,2,0,Real Madrid,H
+2024/25,League phase,2024-11-27,Dinamo Zagreb,0,3,Dortmund,A
+2024/25,League phase,2024-11-27,Monaco,2,3,Benfica,A
+2024/25,League phase,2024-11-27,PSV,3,2,Shakhtar D.,H
+2024/25,League phase,2024-11-27,Bologna,1,2,Lille,A
+2024/25,League phase,2024-12-10,Girona,0,1,Liverpool,A
+2024/25,League phase,2024-12-10,Dinamo Zagreb,0,0,Celtic,D
+2024/25,League phase,2024-12-10,Club Brugge,2,1,Sporting CP,H
+2024/25,League phase,2024-12-10,RB Salzburg,0,3,Paris SG,A
+2024/25,League phase,2024-12-10,RB Leipzig,2,3,Aston Villa,A
+2024/25,League phase,2024-12-10,Brest,1,0,PSV,H
+2024/25,League phase,2024-12-10,Leverkusen,1,0,Inter,H
+2024/25,League phase,2024-12-10,Atalanta,2,3,Real Madrid,A
+2024/25,League phase,2024-12-10,Shakhtar D.,1,5,Bayern Munich,A
+2024/25,League phase,2024-12-11,Atlético Madrid,3,1,Slovan Bratislava,H
+2024/25,League phase,2024-12-11,Lille,3,2,Sturm Graz,H
+2024/25,League phase,2024-12-11,Benfica,0,0,Bologna,D
+2024/25,League phase,2024-12-11,Arsenal,3,0,Monaco,H
+2024/25,League phase,2024-12-11,Juventus,2,0,Manchester City,H
+2024/25,League phase,2024-12-11,Stuttgart,5,1,Young Boys,H
+2024/25,League phase,2024-12-11,Feyenoord,4,2,Sparta Prague,H
+2024/25,League phase,2024-12-11,Milan,2,1,Red Star,H
+2024/25,League phase,2024-12-11,Dortmund,2,3,Barcelona,A
+2024/25,League phase,2025-01-21,Atalanta,5,0,Sturm Graz,H
+2024/25,League phase,2025-01-21,Monaco,1,0,Aston Villa,H
+2024/25,League phase,2025-01-21,Liverpool,2,1,Lille,H
+2024/25,League phase,2025-01-21,Benfica,4,5,Barcelona,A
+2024/25,League phase,2025-01-21,Atlético Madrid,2,1,Leverkusen,H
+2024/25,League phase,2025-01-21,Club Brugge,0,0,Juventus,D
+2024/25,League phase,2025-01-21,Red Star,2,3,PSV,A
+2024/25,League phase,2025-01-21,Slovan Bratislava,1,3,Stuttgart,A
+2024/25,League phase,2025-01-21,Bologna,2,1,Dortmund,H
+2024/25,League phase,2025-01-22,RB Leipzig,2,1,Sporting CP,H
+2024/25,League phase,2025-01-22,Shakhtar D.,2,0,Brest,H
+2024/25,League phase,2025-01-22,Celtic,1,0,Young Boys,H
+2024/25,League phase,2025-01-22,Arsenal,3,0,Dinamo Zagreb,H
+2024/25,League phase,2025-01-22,Feyenoord,3,0,Bayern Munich,H
+2024/25,League phase,2025-01-22,Real Madrid,5,1,RB Salzburg,H
+2024/25,League phase,2025-01-22,Sparta Prague,0,1,Inter,A
+2024/25,League phase,2025-01-22,Milan,1,0,Girona,H
+2024/25,League phase,2025-01-22,Paris SG,4,2,Manchester City,H
+2024/25,League phase,2025-01-29,Aston Villa,4,2,Celtic,H
+2024/25,League phase,2025-01-29,Sporting CP,1,1,Bologna,D
+2024/25,League phase,2025-01-29,Manchester City,3,1,Club Brugge,H
+2024/25,League phase,2025-01-29,Brest,0,3,Real Madrid,A
+2024/25,League phase,2025-01-29,Juventus,0,2,Benfica,A
+2024/25,League phase,2025-01-29,Sturm Graz,1,0,RB Leipzig,H
+2024/25,League phase,2025-01-29,Lille,6,1,Feyenoord,H
+2024/25,League phase,2025-01-29,Stuttgart,1,4,Paris SG,A
+2024/25,League phase,2025-01-29,RB Salzburg,1,4,Atlético Madrid,A
+2024/25,League phase,2025-01-29,Dortmund,3,1,Shakhtar D.,H
+2024/25,League phase,2025-01-29,Barcelona,2,2,Atalanta,D
+2024/25,League phase,2025-01-29,PSV,3,2,Liverpool,H
+2024/25,League phase,2025-01-29,Inter,3,0,Monaco,H
+2024/25,League phase,2025-01-29,Leverkusen,2,0,Sparta Prague,H
+2024/25,League phase,2025-01-29,Young Boys,0,1,Red Star,A
+2024/25,League phase,2025-01-29,Girona,1,2,Arsenal,A
+2024/25,League phase,2025-01-29,Bayern Munich,3,1,Slovan Bratislava,H
+2024/25,League phase,2025-01-29,Dinamo Zagreb,2,1,Milan,H
+2024/25,Knockout phase play-offs,2025-02-11,Brest,0,3,Paris SG,A
+2024/25,Knockout phase play-offs,2025-02-11,Manchester City,2,3,Real Madrid,A
+2024/25,Knockout phase play-offs,2025-02-11,Sporting CP,0,3,Dortmund,A
+2024/25,Knockout phase play-offs,2025-02-11,Juventus,2,1,PSV,H
+2024/25,Knockout phase play-offs,2025-02-12,Club Brugge,2,1,Atalanta,H
+2024/25,Knockout phase play-offs,2025-02-12,Celtic,1,2,Bayern Munich,A
+2024/25,Knockout phase play-offs,2025-02-12,Monaco,0,1,Benfica,A
+2024/25,Knockout phase play-offs,2025-02-12,Feyenoord,1,0,Milan,H
+2024/25,Knockout phase play-offs,2025-02-18,Milan,1,1,Feyenoord,D
+2024/25,Knockout phase play-offs,2025-02-18,Benfica,3,3,Monaco,D
+2024/25,Knockout phase play-offs,2025-02-18,Bayern Munich,1,1,Celtic,D
+2024/25,Knockout phase play-offs,2025-02-18,Atalanta,1,3,Club Brugge,A
+2024/25,Knockout phase play-offs,2025-02-19,Dortmund,0,0,Sporting CP,D
+2024/25,Knockout phase play-offs,2025-02-19,PSV,3,1,Juventus,H
+2024/25,Knockout phase play-offs,2025-02-19,Paris SG,7,0,Brest,H
+2024/25,Knockout phase play-offs,2025-02-19,Real Madrid,3,1,Manchester City,H
+2024/25,Round of 16,2025-03-04,Club Brugge,1,3,Aston Villa,A
+2024/25,Round of 16,2025-03-04,Real Madrid,2,1,Atlético Madrid,H
+2024/25,Round of 16,2025-03-04,Dortmund,1,1,Lille,D
+2024/25,Round of 16,2025-03-04,PSV,1,7,Arsenal,A
+2024/25,Round of 16,2025-03-05,Feyenoord,0,2,Inter,A
+2024/25,Round of 16,2025-03-05,Benfica,0,1,Barcelona,A
+2024/25,Round of 16,2025-03-05,Paris SG,0,1,Liverpool,A
+2024/25,Round of 16,2025-03-05,Bayern Munich,3,0,Leverkusen,H
+2024/25,Round of 16,2025-03-11,Barcelona,3,1,Benfica,H
+2024/25,Round of 16,2025-03-11,Liverpool,0,1,Paris SG,A
+2024/25,Round of 16,2025-03-11,Inter,2,1,Feyenoord,H
+2024/25,Round of 16,2025-03-11,Leverkusen,0,2,Bayern Munich,A
+2024/25,Round of 16,2025-03-12,Lille,1,2,Dortmund,A
+2024/25,Round of 16,2025-03-12,Aston Villa,3,0,Club Brugge,H
+2024/25,Round of 16,2025-03-12,Arsenal,2,2,PSV,D
+2024/25,Round of 16,2025-03-12,Atlético Madrid,1,0,Real Madrid,H
+2024/25,Quarter-finals,2025-04-08,Arsenal,3,0,Real Madrid,H
+2024/25,Quarter-finals,2025-04-08,Bayern Munich,1,2,Inter,A
+2024/25,Quarter-finals,2025-04-09,Barcelona,4,0,Dortmund,H
+2024/25,Quarter-finals,2025-04-09,Paris SG,3,1,Aston Villa,H
+2024/25,Quarter-finals,2025-04-15,Aston Villa,3,2,Paris SG,H
+2024/25,Quarter-finals,2025-04-15,Dortmund,3,1,Barcelona,H
+2024/25,Quarter-finals,2025-04-16,Inter,2,2,Bayern Munich,D
+2024/25,Quarter-finals,2025-04-16,Real Madrid,1,2,Arsenal,A
+2024/25,Semi-finals,2025-04-29,Arsenal,0,1,Paris SG,A
+2024/25,Semi-finals,2025-04-30,Barcelona,3,3,Inter,D
+2024/25,Semi-finals,2025-05-06,Inter,4,3,Barcelona,H
+2024/25,Semi-finals,2025-05-07,Paris SG,2,1,Arsenal,H
+2024/25,Final,2025-05-31,Paris SG,5,0,Inter,H
