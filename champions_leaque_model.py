@@ -610,3 +610,182 @@ print("Latest match:", combined_df["date"].max())
 # CHECK MATCH COUNT BY SEASON
 print("\nMatches by season:")
 print(combined_df["season"].value_counts().sort_index())
+
+
+print("\n")
+
+
+# CLEAN TEAM NAMES FROM BOTH FBREF FORMATS
+def clean_team_name(team):
+    # Convert the value to text
+    team = str(team)
+
+    # Remove country code at the beginning OR at the end
+    team = re.sub(
+        r"^[a-z]{2,3}\s+|\s+[a-z]{2,3}$",
+        "",
+        team
+    )
+
+    # Remove unnecessary spaces
+    team = team.strip()
+
+    return team
+
+
+# CREATE A FUNCTION TO EXTRACT GOALS
+def extract_goals(score):
+    # Convert the score to text
+    score = str(score)
+
+    # Find the two match-goal numbers
+    match = re.search(r"(\d+)\s*–\s*(\d+)", score)
+
+    # Return the goals if found
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    # Return missing values if no score is found
+    return None, None
+
+
+# CREATE A FUNCTION TO ASSIGN MATCH RESULT
+def get_result(row):
+    # Home team won
+    if row["home_goals"] > row["away_goals"]:
+        return "H"
+
+    # Away team won
+    elif row["home_goals"] < row["away_goals"]:
+        return "A"
+
+    # Match was drawn
+    else:
+        return "D"
+
+
+    # CREATE A REUSABLE SEASON-CLEANING FUNCTION
+def clean_season_data(raw_df):
+    # Make a copy so the original raw data is not changed
+    df = raw_df.copy()
+
+    # Standardize the team column names
+    df = df.rename(
+        columns={
+            "home": "home_team",
+            "away": "away_team"
+        }
+    )
+
+    # Extract home and away goals from the score column
+    df[["home_goals", "away_goals"]] = df["score"].apply(
+        lambda x: pd.Series(extract_goals(x))
+    )
+
+    # Create the H/D/A result column
+    df["result"] = df.apply(
+        get_result,
+        axis=1
+    )
+
+    # Clean home team names
+    df["home_team"] = df["home_team"].apply(
+        clean_team_name
+    )
+
+    # Clean away team names
+    df["away_team"] = df["away_team"].apply(
+        clean_team_name
+    )
+
+    # Keep only the columns needed for our clean dataset
+    clean_df = df[
+        [
+            "season",
+            "round",
+            "date",
+            "home_team",
+            "home_goals",
+            "away_goals",
+            "away_team",
+            "result"
+        ]
+    ].copy()
+
+    return clean_df
+
+
+
+# TEST THE REUSABLE FUNCTION WITH 2023/24
+test_2023_24 = clean_season_data(
+    df_2023_24
+)
+
+print("Cleaned 2023/24 Shape:")
+print(test_2023_24.shape)
+
+print("\nCleaned 2023/24 Columns:")
+print(test_2023_24.columns.tolist())
+
+print("\nFirst 5 Rows:")
+print(test_2023_24.head())
+
+
+# TEST THE REUSABLE FUNCTION WITH 2024/25
+test_2024_25 = clean_season_data(
+    df
+)
+
+print("Cleaned 2024/25 Shape:")
+print(test_2024_25.shape)
+
+print("\nCleaned 2024/25 Columns:")
+print(test_2024_25.columns.tolist())
+
+print("\nFirst 5 Rows:")
+print(test_2024_25.head())
+
+
+# TEST CLEANING ON 2023/24 AGAIN
+test_2023_24 = clean_season_data(
+    df_2023_24
+)
+
+print("\n Cleaned 2023/24 Shape:")
+print(test_2023_24.shape)
+
+print("\nFirst 5 Rows:")
+print(test_2023_24.head())
+
+
+print("\n")
+
+
+# VALIDATE 2023/24 CLEAN DATA
+print("2023/24 Missing Values:")
+print(test_2023_24.isnull().sum())
+
+print("\n2023/24 Result Distribution:")
+print(test_2023_24["result"].value_counts())
+
+print("\n2023/24 Duplicate Matches:")
+print(
+    test_2023_24.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+)
+
+
+# VALIDATE 2024/25 CLEAN DATA
+print("\n2024/25 Missing Values:")
+print(test_2024_25.isnull().sum())
+
+print("\n2024/25 Result Distribution:")
+print(test_2024_25["result"].value_counts())
+
+print("\n2024/25 Duplicate Matches:")
+print(
+    test_2024_25.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+)
