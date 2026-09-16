@@ -789,3 +789,71 @@ print(
         subset=["season", "date", "home_team", "away_team"]
     ).sum()
 )
+
+print("\n")
+
+# PROCESS AN ENTIRE CHAMPIONS LEAGUE SEASON
+def process_season(raw_df):
+    # Create a copy so the original raw dataset stays unchanged
+    df = raw_df.copy()
+
+    # Standardize team column names
+    df = df.rename(
+        columns={
+            "home": "home_team",
+            "away": "away_team"
+        }
+    )
+
+    # Extract home and away goals
+    df[["home_goals", "away_goals"]] = df["score"].apply(
+        lambda x: pd.Series(extract_goals(x))
+    )
+
+    # Create H / D / A result
+    df["result"] = df.apply(
+        get_result,
+        axis=1
+    )
+
+    # Clean home team names
+    df["home_team"] = df["home_team"].apply(
+        clean_team_name
+    )
+
+    # Clean away team names
+    df["away_team"] = df["away_team"].apply(
+        clean_team_name
+    )
+
+    # Keep only the modeling columns
+    clean_df = df[
+        [
+            "season",
+            "round",
+            "date",
+            "home_team",
+            "home_goals",
+            "away_goals",
+            "away_team",
+            "result"
+        ]
+    ].copy()
+
+    return clean_df
+
+
+print("\n")
+
+# TEST THE SEASON PROCESSOR
+test_2023_24 = process_season(df_2023_24)
+test_2024_25 = process_season(df)
+
+print("2023/24:", test_2023_24.shape)
+print("2024/25:", test_2024_25.shape)
+
+print("\n2023/24 Missing Values:")
+print(test_2023_24.isnull().sum().sum())
+
+print("\n2024/25 Missing Values:")
+print(test_2024_25.isnull().sum().sum())
