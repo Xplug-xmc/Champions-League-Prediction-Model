@@ -294,3 +294,233 @@ print("\nShape:", clean_df.shape)
 
 print("\nColumns:")
 print(clean_df.columns.tolist())
+
+print("\n")
+
+# LOAD 2023/24 RAW DATASET
+df_2023_24 = pd.read_csv("champions_league_2023_24_fbref_raw.csv")
+
+
+# CHECK DATASET SHAPE
+print("Dataset shape:", df_2023_24.shape)
+
+
+# CHECK COLUMNS
+print("\nColumns:")
+print(df_2023_24.columns.tolist())
+
+
+# CHECK FIRST 5 ROWS
+print("\nFirst 5 rows:")
+print(df_2023_24.head())
+
+
+# CHECK MISSING VALUES
+print("\nMissing values:")
+print(df_2023_24.isnull().sum())
+
+
+# CHECK MATCH ROUNDS
+print("\nRounds:")
+print(df_2023_24["round"].value_counts())
+
+
+# EXTRACT HOME AND AWAY GOALS
+def extract_goals(score):
+    # Convert the score to text
+    score = str(score)
+
+    # Find the two match-goal numbers
+    match = re.search(r"(\d+)\s*–\s*(\d+)", score)
+
+    # Return the goals if a match is found
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    # Return missing values if no score is found
+    return None, None
+
+
+df_2023_24[["home_goals", "away_goals"]] = df_2023_24["score"].apply(
+    lambda x: pd.Series(extract_goals(x))
+)
+
+
+# CREATE MATCH RESULT
+def get_result(row):
+    # Home team won
+    if row["home_goals"] > row["away_goals"]:
+        return "H"
+
+    # Away team won
+    elif row["home_goals"] < row["away_goals"]:
+        return "A"
+
+    # Match was drawn
+    else:
+        return "D"
+
+
+df_2023_24["result"] = df_2023_24.apply(
+    get_result,
+    axis=1
+)
+
+
+# INSPECT SPECIAL SCORE FORMATS
+print("\nScore formats containing parentheses:")
+
+print(
+    df_2023_24[
+        df_2023_24["score"].str.contains(r"\(", na=False)
+    ][
+        [
+            "date",
+            "home",
+            "score",
+            "away",
+            "home_goals",
+            "away_goals",
+            "notes"
+        ]
+    ].to_string(index=False)
+)
+
+print("\n")
+
+# STANDARDIZE TEAM COLUMN NAMES
+df_2023_24 = df_2023_24.rename(
+    columns={
+        "home": "home_team",
+        "away": "away_team"
+    }
+)
+
+
+# CHECK UPDATED COLUMN NAMES
+print(df_2023_24.columns.tolist())
+
+
+print("\n")
+
+# CLEAN TEAM NAMES
+def clean_team_name(team):
+    # Convert the value to text
+    team = str(team)
+
+    # Remove the country code at the beginning
+    team = re.sub(r"^[a-z]{2,3}\s+", "", team)
+
+    # Remove extra spaces
+    team = team.strip()
+
+    return team
+
+
+# APPLY CLEANING TO HOME TEAMS
+df_2023_24["home_team"] = df_2023_24["home_team"].apply(
+    clean_team_name
+)
+
+
+# APPLY CLEANING TO AWAY TEAMS
+df_2023_24["away_team"] = df_2023_24["away_team"].apply(
+    clean_team_name
+)
+
+
+# CHECK TEAM NAMES
+print("\nHome Teams:")
+print(sorted(df_2023_24["home_team"].unique()))
+
+print("\nAway Teams:")
+print(sorted(df_2023_24["away_team"].unique()))
+
+
+
+print("\n")
+
+# CLEAN 2023/24 HOME TEAM NAMES
+def clean_home_team_name(team):
+    # Convert the value to text
+    team = str(team)
+
+    # Remove the country code at the end
+    team = re.sub(r"\s+[a-z]{2,3}$", "", team)
+
+    # Remove unnecessary spaces
+    team = team.strip()
+
+    return team
+
+
+# APPLY CLEANING TO HOME TEAMS
+df_2023_24["home_team"] = df_2023_24["home_team"].apply(
+    clean_home_team_name
+)
+
+
+# CHECK HOME TEAM NAMES
+print("\nHome Teams:")
+print(sorted(df_2023_24["home_team"].unique()))
+
+print("\n")
+
+# CREATE MATCH RESULT
+def get_result(row):
+    # Home team scored more goals
+    if row["home_goals"] > row["away_goals"]:
+        return "H"
+
+    # Away team scored more goals
+    elif row["home_goals"] < row["away_goals"]:
+        return "A"
+
+    # Both teams scored the same number of goals
+    else:
+        return "D"
+
+
+    # CHECK RESULT DISTRIBUTION
+print("\nResult Distribution:")
+print(df_2023_24["result"].value_counts())
+
+print("\nMissing Results:")
+print(df_2023_24["result"].isnull().sum())
+
+
+
+print("\n")
+
+# CREATE CLEAN 2023/24 DATASET
+clean_2023_24 = df_2023_24[
+    [
+        "season",
+        "round",
+        "date",
+        "home_team",
+        "home_goals",
+        "away_goals",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+
+# CHECK CLEAN 2023/24 DATASET
+print("Clean dataset shape:", clean_2023_24.shape)
+
+print("\nColumns:")
+print(clean_2023_24.columns.tolist())
+
+print("\nFirst 10 rows:")
+print(clean_2023_24.head(10))
+
+
+# SAVE CLEAN 2023/24 DATASET
+clean_2023_24.to_csv(
+    "champions_league_2023_24_clean.csv",
+    index=False
+)
+
+print("Clean 2023/24 dataset saved successfully.")
