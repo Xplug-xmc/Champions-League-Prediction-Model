@@ -1,10 +1,11 @@
 # IMPORT LIBRARIES
 import pandas as pd
 import re
+from pathlib import Path
 
 
 # LOAD DATASET
-df = pd.read_csv("champions_league_2024_25_fbref_raw.csv")
+df = pd.read_csv("data/raw/champions_league_2024_25_fbref_raw.csv")
 
 
 # DATASET SHAPE
@@ -192,7 +193,7 @@ print(clean_df["away_team"].unique())
 
 
 # RELOAD RAW DATASET
-df = pd.read_csv("champions_league_2024_25_fbref_raw.csv")
+df = pd.read_csv("data/raw/champions_league_2024_25_fbref_raw.csv")
 
 
 # EXTRACT HOME AND AWAY GOALS
@@ -298,7 +299,7 @@ print(clean_df.columns.tolist())
 print("\n")
 
 # LOAD 2023/24 RAW DATASET
-df_2023_24 = pd.read_csv("champions_league_2023_24_fbref_raw.csv")
+df_2023_24 = pd.read_csv("data/raw/champions_league_2023_24_fbref_raw.csv")
 
 
 # CHECK DATASET SHAPE
@@ -665,11 +666,16 @@ def get_result(row):
 
 
     # CREATE A REUSABLE SEASON-CLEANING FUNCTION
+# Clean Season Data
 def clean_season_data(raw_df):
-    # Make a copy so the original raw data is not changed
+
+    # Make a copy of the raw data
     df = raw_df.copy()
 
-    # Standardize the team column names
+    # Standardize column names to lowercase
+    df.columns = df.columns.str.strip().str.lower()
+
+    # Rename team columns
     df = df.rename(
         columns={
             "home": "home_team",
@@ -677,28 +683,19 @@ def clean_season_data(raw_df):
         }
     )
 
-    # Extract home and away goals from the score column
+    # Extract home and away goals from the score
     df[["home_goals", "away_goals"]] = df["score"].apply(
         lambda x: pd.Series(extract_goals(x))
     )
 
-    # Create the H/D/A result column
-    df["result"] = df.apply(
-        get_result,
-        axis=1
-    )
+    # Calculate match result
+    df["result"] = df.apply(get_result, axis=1)
 
-    # Clean home team names
-    df["home_team"] = df["home_team"].apply(
-        clean_team_name
-    )
+    # Clean team names
+    df["home_team"] = df["home_team"].apply(clean_team_name)
+    df["away_team"] = df["away_team"].apply(clean_team_name)
 
-    # Clean away team names
-    df["away_team"] = df["away_team"].apply(
-        clean_team_name
-    )
-
-    # Keep only the columns needed for our clean dataset
+    # Select final columns
     clean_df = df[
         [
             "season",
@@ -713,7 +710,6 @@ def clean_season_data(raw_df):
     ].copy()
 
     return clean_df
-
 
 
 # TEST THE REUSABLE FUNCTION WITH 2023/24
@@ -792,68 +788,290 @@ print(
 
 print("\n")
 
-# PROCESS AN ENTIRE CHAMPIONS LEAGUE SEASON
-def process_season(raw_df):
-    # Create a copy so the original raw dataset stays unchanged
-    df = raw_df.copy()
 
-    # Standardize team column names
-    df = df.rename(
-        columns={
-            "home": "home_team",
-            "away": "away_team"
-        }
-    )
+# PROCESS A COMPLETE SEASON
+def process_season(file):
 
-    # Extract home and away goals
-    df[["home_goals", "away_goals"]] = df["score"].apply(
-        lambda x: pd.Series(extract_goals(x))
-    )
+    # Display the season currently being processed
+    print(f"\nProcessing season: {file.name}")
 
-    # Create H / D / A result
-    df["result"] = df.apply(
-        get_result,
+    # Read the raw CSV file
+    raw_df = pd.read_csv(file)
+
+    # Clean the raw dataset
+    clean_df = clean_season_data(raw_df)
+
+    # Get the season name
+    season = clean_df["season"].iloc[0]
+
+    # Check for missing values
+    missing_values = clean_df.isnull().sum().sum()
+
+    # Check for duplicate matches
+    duplicate_matches = clean_df.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+
+    # Recalculate the result directly from the match goals
+    calculated_result = clean_df.apply(
+        lambda row: (
+            "H" if row["home_goals"] > row["away_goals"]
+            else "A" if row["home_goals"] < row["away_goals"]
+            else "D"
+        ),
         axis=1
     )
 
-    # Clean home team names
-    df["home_team"] = df["home_team"].apply(
-        clean_team_name
-    )
+    # Count result mismatches
+    result_mismatches = (
+        clean_df["result"] != calculated_result
+    ).sum()
 
-    # Clean away team names
-    df["away_team"] = df["away_team"].apply(
-        clean_team_name
-    )
+    # Display validation results
+    print(f"Season: {season}")
+    print(f"Rows: {len(clean_df)}")
+    print(f"Missing values: {missing_values}")
+    print(f"Duplicate matches: {duplicate_matches}")
+    print(f"Result mismatches: {result_mismatches}")
 
-    # Keep only the modeling columns
-    clean_df = df[
-        [
-            "season",
-            "round",
-            "date",
-            "home_team",
-            "home_goals",
-            "away_goals",
-            "away_team",
-            "result"
-        ]
-    ].copy()
+    # Display result distribution
+    print("\nResult distribution:")
+    print(clean_df["result"].value_counts())
 
+    # Return the cleaned season dataset
     return clean_df
 
 
 print("\n")
 
-# TEST THE SEASON PROCESSOR
-test_2023_24 = process_season(df_2023_24)
-test_2024_25 = process_season(df)
+# DATA FOLDER SETUP
+# Location of the original/raw datasets
+RAW_DIR = Path("data/raw")
 
-print("2023/24:", test_2023_24.shape)
-print("2024/25:", test_2024_25.shape)
+# Location where cleaned/processed datasets will be saved
+PROCESSED_DIR = Path("data/processed")
 
-print("\n2023/24 Missing Values:")
-print(test_2023_24.isnull().sum().sum())
+# Create the processed folder if it does not already exist
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-print("\n2024/25 Missing Values:")
-print(test_2024_25.isnull().sum().sum())
+
+# FIND RAW DATASET FILES
+# Find every CSV file inside the raw data folder
+raw_files = list(RAW_DIR.glob("*.csv"))
+
+# Display the number of CSV files found
+print("Raw CSV files found:", len(raw_files))
+
+# Display the name/path of each raw CSV file
+for file in raw_files:
+    print(file)
+
+
+print("\n")
+
+# PROCESS ALL RAW SEASONS
+
+# Create an empty list to store the processed seasons
+cleaned_seasons = []
+
+# Process every raw CSV file
+for file in raw_files:
+
+    # Process the complete season
+    clean_df = process_season(file)
+
+    # Store the processed season
+    cleaned_seasons.append(clean_df)
+
+
+   
+# CHECK RESULT DISTRIBUTION BY SEASON
+# Go through each cleaned season
+for clean_df in cleaned_seasons:
+
+    # Get the season name
+    season = clean_df["season"].iloc[0]
+
+    # Count the number of Home Wins, Draws, and Away Wins
+    result_counts = clean_df["result"].value_counts()
+
+    # Calculate the percentage of each result
+    result_percentages = clean_df["result"].value_counts(normalize=True) * 100
+
+    print(f"\n--- {season} Result Distribution ---")
+
+    print("\nNumber of matches:")
+    print(result_counts)
+
+    print("\nPercentage of matches:")
+    print(result_percentages.round(2))
+
+
+
+# VALIDATE RESULTS AGAINST MATCH GOALS
+# Go through each cleaned season
+for clean_df in cleaned_seasons:
+
+    # Recalculate the result directly from the recorded goals
+    calculated_result = clean_df.apply(
+        lambda row: (
+            "H" if row["home_goals"] > row["away_goals"]
+            else "A" if row["home_goals"] < row["away_goals"]
+            else "D"
+        ),
+        axis=1
+    )
+
+    # Compare the existing result with the recalculated result
+    mismatches = (clean_df["result"] != calculated_result).sum()
+
+    # Get the season name
+    season = clean_df["season"].iloc[0]
+
+    print(f"\n--- {season} Result Validation ---")
+    print("Result mismatches:", mismatches)
+
+
+
+# CHECK DATA QUALITY BY SEASON
+# Go through each cleaned season
+for clean_df in cleaned_seasons:
+
+    # Get the season name
+    season = clean_df["season"].iloc[0]
+
+    # Count all missing values in the dataset
+    missing_values = clean_df.isnull().sum().sum()
+
+    # Check for duplicate matches
+    duplicate_matches = clean_df.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+
+    print(f"\n--- {season} Data Quality Check ---")
+
+    print("Missing values:", missing_values)
+    print("Duplicate matches:", duplicate_matches)
+
+
+
+# COMBINE ALL CLEANED SEASONS
+# Combine the cleaned datasets into one DataFrame
+combined_df = pd.concat(cleaned_seasons, ignore_index=True)
+
+
+# STANDARDIZE SEASON NAMES
+# Convert season names such as 2010/11 to 2010-11
+combined_df["season"] = combined_df["season"].str.replace(
+    "/", "-", regex=False
+)
+
+
+# Display the shape of the combined dataset
+print("\n--- Combined Dataset ---")
+print("Shape:", combined_df.shape)
+
+# Display the number of matches from each season
+print("\nMatches by season:")
+print(combined_df["season"].value_counts())
+
+
+
+# VALIDATE COMBINED DATASET
+# Check for missing values in the combined dataset
+print("\nMissing values:")
+print(combined_df.isnull().sum())
+
+# Check for duplicate matches across all seasons
+duplicate_matches = combined_df.duplicated(
+    subset=["season", "date", "home_team", "away_team"]
+).sum()
+
+print("\nDuplicate matches:", duplicate_matches)
+
+# Check the overall result distribution
+print("\nOverall Result Distribution:")
+print(combined_df["result"].value_counts())
+
+# Check the overall result percentages
+result_percentages = combined_df["result"].value_counts(normalize=True) * 100
+
+print("\nOverall Result Percentages:")
+print(result_percentages.round(2))
+
+
+print("\n")
+
+# SAVE COMBINED PROCESSED DATASET
+# Define the location and filename for the processed dataset
+output_file = PROCESSED_DIR / "champions_league_all_seasons_clean.csv"
+
+# Save the combined dataset
+combined_df.to_csv(output_file, index=False)
+
+# Confirm that the file was saved successfully
+print("\nProcessed dataset saved successfully.")
+print("Saved to:", output_file)
+
+
+print("\n")
+
+# Expected Seasons
+expected_seasons = [
+    "2010-11", "2011-12", "2012-13", "2013-14",
+    "2014-15", "2015-16", "2016-17", "2017-18",
+    "2018-19", "2019-20", "2020-21", "2021-22",
+    "2022-23", "2023-24", "2024-25", "2025-26"
+]
+
+
+# Master Dataset Validation
+print("\n===== MASTER DATASET VALIDATION =====")
+
+
+# Total Matches
+print("Total matches:", len(combined_df))
+
+
+# Total Seasons
+print("Total seasons:", combined_df["season"].nunique())
+
+
+# Seasons Found
+print("\nSeasons found:")
+print(sorted(combined_df["season"].unique()))
+
+
+# Missing Values
+print("\nMissing values:")
+print(combined_df.isnull().sum())
+
+
+# Duplicate Matches
+print("\nDuplicate matches:")
+print(
+    combined_df.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+)
+
+
+# Result Distribution
+print("\nResult distribution:")
+print(combined_df["result"].value_counts())
+
+
+# Validation Checks
+assert combined_df["season"].nunique() == 16
+assert len(combined_df) == 2122
+assert sorted(combined_df["season"].unique()) == expected_seasons
+
+print("\n")
+
+# Save Master Clean Dataset
+output_file = PROCESSED_DIR / "champions_league_all_seasons_clean.csv"
+
+combined_df.to_csv(output_file, index=False)
+
+print("\nMaster dataset saved successfully.")
+print("Saved to:", output_file)
