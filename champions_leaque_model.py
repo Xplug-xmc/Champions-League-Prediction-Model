@@ -3870,3 +3870,592 @@ print(
         labels=calibrated_cb_classes
     )
 )
+
+print("\n")
+
+
+# FEATURE ENGINEERING V3
+# DRAW AND BALANCE FEATURES
+features_v3 = features_v2.copy()
+
+
+# ABSOLUTE STRENGTH GAPS
+features_v3["abs_win_rate_gap"] = (
+    features_v3["win_rate_edge"].abs()
+)
+
+features_v3["abs_venue_win_rate_gap"] = (
+    features_v3["venue_win_rate_edge"].abs()
+)
+
+features_v3["abs_recent_points_gap"] = (
+    features_v3["recent_points_edge"].abs()
+)
+
+features_v3["abs_goal_scoring_gap"] = (
+    features_v3["home_goal_scoring_edge"].abs()
+)
+
+features_v3["abs_defensive_gap"] = (
+    features_v3["home_defensive_edge"].abs()
+)
+
+
+# COMBINED TEAM FORM
+features_v3["combined_recent_points"] = (
+    features_v3["home_recent_points_5"]
+    + features_v3["away_recent_points_5"]
+)
+
+features_v3["combined_win_rate"] = (
+    features_v3["home_win_rate"]
+    + features_v3["away_win_rate"]
+)
+
+
+# COMBINED GOAL ENVIRONMENT
+features_v3["combined_avg_goals_for"] = (
+    features_v3["home_avg_goals_for"]
+    + features_v3["away_avg_goals_for"]
+)
+
+features_v3["combined_avg_goals_against"] = (
+    features_v3["home_avg_goals_against"]
+    + features_v3["away_avg_goals_against"]
+)
+
+
+# TEAM BALANCE SCORE
+# Higher value = more similar historical win rates
+features_v3["win_rate_balance"] = (
+    1 - features_v3["abs_win_rate_gap"]
+)
+
+
+# FORM BALANCE SCORE
+# Higher value = more similar recent form
+features_v3["recent_form_balance"] = (
+    1 -
+    (
+        features_v3["abs_recent_points_gap"]
+        / 15
+    )
+)
+
+
+# LIST NEW FEATURES
+v3_new_features = [
+    "abs_win_rate_gap",
+    "abs_venue_win_rate_gap",
+    "abs_recent_points_gap",
+    "abs_goal_scoring_gap",
+    "abs_defensive_gap",
+    "combined_recent_points",
+    "combined_win_rate",
+    "combined_avg_goals_for",
+    "combined_avg_goals_against",
+    "win_rate_balance",
+    "recent_form_balance"
+]
+
+
+# DISPLAY V3 FEATURES
+print("\n===== FEATURE ENGINEERING V3 =====")
+
+print("\nNew V3 features:")
+
+for feature in v3_new_features:
+    print("-", feature)
+
+
+# CHECK V3 FEATURE STATISTICS
+print("\n===== V3 FEATURE STATISTICS =====")
+
+print(
+    features_v3[
+        v3_new_features
+    ]
+    .describe()
+    .round(4)
+)
+
+
+# CHECK MISSING VALUES
+print("\n===== V3 MISSING VALUES =====")
+
+print(
+    features_v3[
+        v3_new_features
+    ]
+    .isnull()
+    .sum()
+)
+
+
+# CREATE V3 MODEL FEATURES
+model_features_v3 = (
+    model_features_v2
+    + v3_new_features
+)
+
+
+print("\n===== V3 MODEL FEATURES =====")
+
+print(
+    "Number of features:",
+    len(model_features_v3)
+)
+
+
+# CREATE V3 CHRONOLOGICAL DATASET
+model_df_v3 = (
+    features_v3
+    .sort_values("date")
+    .reset_index(drop=True)
+)
+
+
+# TIME-AWARE SPLIT
+split_index_v3 = int(
+    len(model_df_v3) * 0.80
+)
+
+cutoff_date_v3 = model_df_v3.loc[
+    split_index_v3,
+    "date"
+]
+
+train_df_v3 = model_df_v3[
+    model_df_v3["date"] < cutoff_date_v3
+].copy()
+
+test_df_v3 = model_df_v3[
+    model_df_v3["date"] >= cutoff_date_v3
+].copy()
+
+
+# CREATE TRAINING / TEST FEATURES
+X_train_v3 = train_df_v3[
+    model_features_v3
+]
+
+y_train_v3 = train_df_v3[
+    "result"
+]
+
+X_test_v3 = test_df_v3[
+    model_features_v3
+]
+
+y_test_v3 = test_df_v3[
+    "result"
+]
+
+
+# V3 SPLIT VALIDATION
+print("\n===== V3 TRAIN / TEST SPLIT =====")
+
+print(
+    "Training rows:",
+    len(train_df_v3)
+)
+
+print(
+    "Testing rows:",
+    len(test_df_v3)
+)
+
+print(
+    "Training dates:",
+    train_df_v3["date"].min(),
+    "to",
+    train_df_v3["date"].max()
+)
+
+print(
+    "Testing dates:",
+    test_df_v3["date"].min(),
+    "to",
+    test_df_v3["date"].max()
+)
+
+
+# CHECK DATE OVERLAP
+v3_overlapping_dates = set(
+    train_df_v3["date"]
+).intersection(
+    set(test_df_v3["date"])
+)
+
+print(
+    "\nOverlapping dates:",
+    len(v3_overlapping_dates)
+)
+
+if (
+    train_df_v3["date"].max()
+    < test_df_v3["date"].min()
+    and
+    len(v3_overlapping_dates) == 0
+):
+    print(
+        "V3 temporal split verified: PASS"
+    )
+else:
+    print(
+        "V3 temporal split verified: FAIL"
+    )
+
+
+# SAVE V3
+features_v3_output = (
+    PROCESSED_DIR /
+    "champions_league_features_v3.csv"
+)
+
+features_v3.to_csv(
+    features_v3_output,
+    index=False
+)
+
+print(
+    "\nFeature dataset V3 saved successfully."
+)
+
+print(
+    "Saved to:",
+    features_v3_output
+)
+
+
+
+
+# V3 MODEL TEST
+# CATBOOST + LOGISTIC REGRESSION
+print("\n===== V3 LOGISTIC REGRESSION =====")
+
+v3_logistic_model = Pipeline(
+    steps=[
+        (
+            "scaler",
+            StandardScaler()
+        ),
+        (
+            "model",
+            LogisticRegression(
+                max_iter=2000
+            )
+        )
+    ]
+)
+
+v3_logistic_model.fit(
+    X_train_v3,
+    y_train_v3
+)
+
+v3_lr_pred = v3_logistic_model.predict(
+    X_test_v3
+)
+
+v3_lr_prob = v3_logistic_model.predict_proba(
+    X_test_v3
+)
+
+v3_lr_classes = (
+    v3_logistic_model
+    .named_steps["model"]
+    .classes_
+)
+
+v3_lr_accuracy = accuracy_score(
+    y_test_v3,
+    v3_lr_pred
+)
+
+v3_lr_logloss = log_loss(
+    y_test_v3,
+    v3_lr_prob,
+    labels=v3_lr_classes
+)
+
+v3_lr_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(
+        v3_lr_classes
+    )
+}
+
+v3_lr_true_encoded = (
+    y_test_v3
+    .map(v3_lr_class_to_index)
+    .to_numpy()
+)
+
+v3_lr_brier = (
+    (
+        (
+            v3_lr_prob -
+            (
+                v3_lr_true_encoded[:, None]
+                == range(
+                    len(v3_lr_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+print(
+    "Accuracy:",
+    round(v3_lr_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(v3_lr_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(v3_lr_brier, 4)
+)
+
+
+# V3 CATBOOST
+print("\n===== V3 CATBOOST =====")
+
+v3_catboost_model = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+v3_catboost_model.fit(
+    X_train_v3,
+    y_train_v3
+)
+
+v3_cb_pred = (
+    v3_catboost_model
+    .predict(X_test_v3)
+    .ravel()
+)
+
+v3_cb_prob = (
+    v3_catboost_model
+    .predict_proba(X_test_v3)
+)
+
+v3_cb_classes = (
+    v3_catboost_model.classes_
+)
+
+v3_cb_accuracy = accuracy_score(
+    y_test_v3,
+    v3_cb_pred
+)
+
+v3_cb_logloss = log_loss(
+    y_test_v3,
+    v3_cb_prob,
+    labels=v3_cb_classes
+)
+
+v3_cb_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(
+        v3_cb_classes
+    )
+}
+
+v3_cb_true_encoded = (
+    y_test_v3
+    .map(v3_cb_class_to_index)
+    .to_numpy()
+)
+
+v3_cb_brier = (
+    (
+        (
+            v3_cb_prob -
+            (
+                v3_cb_true_encoded[:, None]
+                == range(
+                    len(v3_cb_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+print(
+    "Accuracy:",
+    round(v3_cb_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(v3_cb_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(v3_cb_brier, 4)
+)
+
+
+# V3 MODEL COMPARISON
+print("\n===== V3 MODEL COMPARISON =====")
+
+v3_comparison = pd.DataFrame({
+    "Model": [
+        "V3 Logistic Regression",
+        "V3 CatBoost",
+        "Calibrated V2 CatBoost"
+    ],
+    "Accuracy": [
+        v3_lr_accuracy,
+        v3_cb_accuracy,
+        calibrated_cb_accuracy
+    ],
+    "Log Loss": [
+        v3_lr_logloss,
+        v3_cb_logloss,
+        calibrated_cb_logloss
+    ],
+    "Brier Score": [
+        v3_lr_brier,
+        v3_cb_brier,
+        calibrated_cb_brier
+    ]
+})
+
+print(
+    v3_comparison.round(4)
+)
+
+
+# CALIBRATE V3 CATBOOST
+print("\n===== CALIBRATING V3 CATBOOST =====")
+
+v3_calibration_cv = TimeSeriesSplit(
+    n_splits=5
+)
+
+calibrated_v3_catboost = (
+    CalibratedClassifierCV(
+        estimator=v3_catboost_model,
+        method="sigmoid",
+        cv=v3_calibration_cv,
+        ensemble=True
+    )
+)
+
+calibrated_v3_catboost.fit(
+    X_train_v3,
+    y_train_v3
+)
+
+v3_calibrated_cb_pred = (
+    calibrated_v3_catboost
+    .predict(X_test_v3)
+)
+
+v3_calibrated_cb_prob = (
+    calibrated_v3_catboost
+    .predict_proba(X_test_v3)
+)
+
+v3_calibrated_cb_classes = (
+    calibrated_v3_catboost.classes_
+)
+
+
+# V3 CALIBRATED METRICS
+v3_calibrated_accuracy = accuracy_score(
+    y_test_v3,
+    v3_calibrated_cb_pred
+)
+
+v3_calibrated_logloss = log_loss(
+    y_test_v3,
+    v3_calibrated_cb_prob,
+    labels=v3_calibrated_cb_classes
+)
+
+v3_calibrated_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(
+        v3_calibrated_cb_classes
+    )
+}
+
+v3_calibrated_true_encoded = (
+    y_test_v3
+    .map(v3_calibrated_class_to_index)
+    .to_numpy()
+)
+
+v3_calibrated_brier = (
+    (
+        (
+            v3_calibrated_cb_prob -
+            (
+                v3_calibrated_true_encoded[:, None]
+                == range(
+                    len(v3_calibrated_cb_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+print(
+    "Accuracy:",
+    round(v3_calibrated_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(v3_calibrated_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(v3_calibrated_brier, 4)
+)
+
+
+# FINAL V2 VS V3 CALIBRATION COMPARISON
+print("\n===== V2 VS V3 CALIBRATED CATBOOST =====")
+
+final_feature_comparison = pd.DataFrame({
+    "Model": [
+        "Calibrated V2 CatBoost",
+        "Calibrated V3 CatBoost"
+    ],
+    "Features": [
+        len(model_features_v2),
+        len(model_features_v3)
+    ],
+    "Accuracy": [
+        calibrated_cb_accuracy,
+        v3_calibrated_accuracy
+    ],
+    "Log Loss": [
+        calibrated_cb_logloss,
+        v3_calibrated_logloss
+    ],
+    "Brier Score": [
+        calibrated_cb_brier,
+        v3_calibrated_brier
+    ]
+})
+
+print(
+    final_feature_comparison.round(4)
+)
