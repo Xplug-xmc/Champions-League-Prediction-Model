@@ -8,6 +8,7 @@ from collections import deque
 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -15,6 +16,9 @@ from sklearn.metrics import (
     confusion_matrix,
     classification_report
 )
+from sklearn.ensemble import RandomForestClassifier
+from catboost import CatBoostClassifier
+from xgboost import XGBClassifier
 
 
 # LOAD DATASET
@@ -2322,4 +2326,633 @@ normalized_brier_score = brier_score / len(model_classes)
 print("\nNormalized multiclass Brier Score:")
 print(
     round(normalized_brier_score, 4)
+)
+
+
+
+print("\n BASELINE MODEL 2 Random Forest")
+
+# BASELINE MODEL 2
+# RANDOM FOREST
+# CREATE RANDOM FOREST MODEL
+random_forest_model = RandomForestClassifier(
+    n_estimators=300,
+    max_depth=8,
+    min_samples_leaf=5,
+    random_state=42,
+    n_jobs=-1
+)
+
+
+# TRAIN RANDOM FOREST
+print("\n===== TRAINING RANDOM FOREST =====")
+
+random_forest_model.fit(
+    X_train,
+    y_train
+)
+
+print("Random Forest training completed successfully.")
+
+
+# MAKE PREDICTIONS
+rf_y_pred = random_forest_model.predict(
+    X_test
+)
+
+rf_y_prob = random_forest_model.predict_proba(
+    X_test
+)
+
+
+# GET MODEL CLASSES
+rf_classes = random_forest_model.classes_
+
+print("\nRandom Forest classes:")
+print(rf_classes)
+
+
+# ACCURACY
+rf_accuracy = accuracy_score(
+    y_test,
+    rf_y_pred
+)
+
+print("\n===== RANDOM FOREST PERFORMANCE =====")
+
+print(
+    "Accuracy:",
+    round(rf_accuracy, 4)
+)
+
+
+# LOG LOSS
+rf_logloss = log_loss(
+    y_test,
+    rf_y_prob,
+    labels=rf_classes
+)
+
+print(
+    "Log Loss:",
+    round(rf_logloss, 4)
+)
+
+
+# CONFUSION MATRIX
+rf_cm = confusion_matrix(
+    y_test,
+    rf_y_pred,
+    labels=rf_classes
+)
+
+print("\n===== RANDOM FOREST CONFUSION MATRIX =====")
+
+print(rf_cm)
+
+
+# CLASSIFICATION REPORT
+print("\n===== RANDOM FOREST CLASSIFICATION REPORT =====")
+
+print(
+    classification_report(
+        y_test,
+        rf_y_pred,
+        labels=rf_classes
+    )
+)
+
+
+# MULTICLASS BRIER SCORE
+rf_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(rf_classes)
+}
+
+rf_y_true_encoded = y_test.map(
+    rf_class_to_index
+).to_numpy()
+
+rf_brier_score = (
+    (
+        (
+            rf_y_prob -
+            (
+                rf_y_true_encoded[:, None]
+                == range(len(rf_classes))
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+print(
+    "\nRandom Forest Brier Score:",
+    round(rf_brier_score, 4)
+)
+
+print(
+    "Random Forest Normalized Brier Score:",
+    round(
+        rf_brier_score / len(rf_classes),
+        4
+    )
+)
+
+
+# COMPARE THE TWO MODELS
+print("\n===== MODEL COMPARISON =====")
+
+model_comparison = pd.DataFrame({
+    "Model": [
+        "Logistic Regression",
+        "Random Forest"
+    ],
+    "Accuracy": [
+        accuracy,
+        rf_accuracy
+    ],
+    "Log Loss": [
+        logloss,
+        rf_logloss
+    ],
+    "Brier Score": [
+        brier_score,
+        rf_brier_score
+    ],
+    "Normalized Brier": [
+        normalized_brier_score,
+        rf_brier_score / len(rf_classes)
+    ]
+})
+
+print(
+    model_comparison.round(4)
+)
+
+
+# RANDOM FOREST PROBABILITY PREVIEW
+rf_prediction_preview = test_df[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+rf_prediction_preview["predicted_result"] = rf_y_pred
+
+rf_prediction_preview["away_win_probability"] = (
+    rf_y_prob[
+        :,
+        list(rf_classes).index("A")
+    ]
+)
+
+rf_prediction_preview["draw_probability"] = (
+    rf_y_prob[
+        :,
+        list(rf_classes).index("D")
+    ]
+)
+
+rf_prediction_preview["home_win_probability"] = (
+    rf_y_prob[
+        :,
+        list(rf_classes).index("H")
+    ]
+)
+
+print("\n===== RANDOM FOREST FIRST 10 PREDICTIONS =====")
+
+print(
+    rf_prediction_preview.head(10)
+)
+
+
+
+
+print("\n # BASELINE MODEL 3 CATBOOST")
+
+# BASELINE MODEL 3
+# CATBOOST
+catboost_model = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+
+# TRAIN CATBOOST
+print("\n===== TRAINING CATBOOST =====")
+
+catboost_model.fit(
+    X_train,
+    y_train
+)
+
+print(
+    "CatBoost training completed successfully."
+)
+
+
+# MAKE PREDICTIONS
+cb_y_pred = catboost_model.predict(
+    X_test
+).ravel()
+
+cb_y_prob = catboost_model.predict_proba(
+    X_test
+)
+
+
+# GET MODEL CLASSES
+cb_classes = catboost_model.classes_
+
+print("\nCatBoost classes:")
+print(cb_classes)
+
+
+# ACCURACY
+cb_accuracy = accuracy_score(
+    y_test,
+    cb_y_pred
+)
+
+print("\n===== CATBOOST PERFORMANCE =====")
+
+print(
+    "Accuracy:",
+    round(cb_accuracy, 4)
+)
+
+
+# LOG LOSS
+cb_logloss = log_loss(
+    y_test,
+    cb_y_prob,
+    labels=cb_classes
+)
+
+print(
+    "Log Loss:",
+    round(cb_logloss, 4)
+)
+
+
+# CONFUSION MATRIX
+cb_cm = confusion_matrix(
+    y_test,
+    cb_y_pred,
+    labels=cb_classes
+)
+
+print("\n===== CATBOOST CONFUSION MATRIX =====")
+
+print(cb_cm)
+
+
+# CLASSIFICATION REPORT
+print("\n===== CATBOOST CLASSIFICATION REPORT =====")
+
+print(
+    classification_report(
+        y_test,
+        cb_y_pred,
+        labels=cb_classes
+    )
+)
+
+
+# MULTICLASS BRIER SCORE
+cb_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(cb_classes)
+}
+
+cb_y_true_encoded = y_test.map(
+    cb_class_to_index
+).to_numpy()
+
+cb_brier_score = (
+    (
+        (
+            cb_y_prob -
+            (
+                cb_y_true_encoded[:, None]
+                == range(len(cb_classes))
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+cb_normalized_brier = (
+    cb_brier_score /
+    len(cb_classes)
+)
+
+print(
+    "\nCatBoost Brier Score:",
+    round(cb_brier_score, 4)
+)
+
+print(
+    "CatBoost Normalized Brier Score:",
+    round(cb_normalized_brier, 4)
+)
+
+
+# COMPARE ALL THREE MODELS
+print("\n===== ALL MODEL COMPARISON =====")
+
+all_model_comparison = pd.DataFrame({
+    "Model": [
+        "Logistic Regression",
+        "Random Forest",
+        "CatBoost"
+    ],
+    "Accuracy": [
+        accuracy,
+        rf_accuracy,
+        cb_accuracy
+    ],
+    "Log Loss": [
+        logloss,
+        rf_logloss,
+        cb_logloss
+    ],
+    "Brier Score": [
+        brier_score,
+        rf_brier_score,
+        cb_brier_score
+    ],
+    "Normalized Brier": [
+        normalized_brier_score,
+        rf_brier_score / len(rf_classes),
+        cb_normalized_brier
+    ]
+})
+
+print(
+    all_model_comparison.round(4)
+)
+
+
+# CATBOOST FIRST 10 PROBABILITIES
+cb_prediction_preview = test_df[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+cb_prediction_preview["predicted_result"] = (
+    cb_y_pred
+)
+
+cb_prediction_preview["away_win_probability"] = (
+    cb_y_prob[
+        :,
+        list(cb_classes).index("A")
+    ]
+)
+
+cb_prediction_preview["draw_probability"] = (
+    cb_y_prob[
+        :,
+        list(cb_classes).index("D")
+    ]
+)
+
+cb_prediction_preview["home_win_probability"] = (
+    cb_y_prob[
+        :,
+        list(cb_classes).index("H")
+    ]
+)
+
+print(
+    "\n===== CATBOOST FIRST 10 PREDICTIONS ====="
+)
+
+print(
+    cb_prediction_preview.head(10)
+)
+
+
+
+print("\n  BASELINE MODEL 4 XGBOOST")
+
+
+# BASELINE MODEL 4
+# XGBOOST
+# ENCODE TARGET CLASSES FOR XGBOOST
+xgb_label_encoder = LabelEncoder()
+
+y_train_xgb = xgb_label_encoder.fit_transform(
+    y_train
+)
+
+y_test_xgb = xgb_label_encoder.transform(
+    y_test
+)
+
+print("\n===== XGBOOST CLASS ENCODING =====")
+
+print(
+    "Original classes:",
+    xgb_label_encoder.classes_
+)
+
+print(
+    "Encoded classes:",
+    xgb_label_encoder.transform(
+        xgb_label_encoder.classes_
+    )
+)
+
+
+# CREATE XGBOOST MODEL
+xgb_model = XGBClassifier(
+    n_estimators=500,
+    max_depth=4,
+    learning_rate=0.03,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    objective="multi:softprob",
+    eval_metric="mlogloss",
+    random_state=42,
+    n_jobs=-1
+)
+
+
+# TRAIN XGBOOST
+print("\n===== TRAINING XGBOOST =====")
+
+xgb_model.fit(
+    X_train,
+    y_train_xgb
+)
+
+print(
+    "XGBoost training completed successfully."
+)
+
+
+# MAKE ENCODED PREDICTIONS
+xgb_y_pred_encoded = xgb_model.predict(
+    X_test
+)
+
+xgb_y_prob = xgb_model.predict_proba(
+    X_test
+)
+
+
+# CONVERT PREDICTIONS BACK TO H / D / A
+xgb_y_pred = xgb_label_encoder.inverse_transform(
+    xgb_y_pred_encoded.astype(int)
+)
+
+xgb_classes = xgb_label_encoder.classes_
+
+
+print("\nXGBoost classes:")
+print(xgb_classes)
+
+
+# ACCURACY
+xgb_accuracy = accuracy_score(
+    y_test,
+    xgb_y_pred
+)
+
+print("\n===== XGBOOST PERFORMANCE =====")
+
+print(
+    "Accuracy:",
+    round(xgb_accuracy, 4)
+)
+
+
+# LOG LOSS
+xgb_logloss = log_loss(
+    y_test,
+    xgb_y_prob,
+    labels=xgb_classes
+)
+
+print(
+    "Log Loss:",
+    round(xgb_logloss, 4)
+)
+
+
+# CONFUSION MATRIX
+xgb_cm = confusion_matrix(
+    y_test,
+    xgb_y_pred,
+    labels=xgb_classes
+)
+
+print("\n===== XGBOOST CONFUSION MATRIX =====")
+
+print(xgb_cm)
+
+
+# CLASSIFICATION REPORT
+print("\n===== XGBOOST CLASSIFICATION REPORT =====")
+
+print(
+    classification_report(
+        y_test,
+        xgb_y_pred,
+        labels=xgb_classes
+    )
+)
+
+
+# BRIER SCORE
+xgb_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(xgb_classes)
+}
+
+xgb_y_true_encoded = y_test.map(
+    xgb_class_to_index
+).to_numpy()
+
+xgb_brier_score = (
+    (
+        (
+            xgb_y_prob -
+            (
+                xgb_y_true_encoded[:, None]
+                == range(len(xgb_classes))
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+xgb_normalized_brier = (
+    xgb_brier_score /
+    len(xgb_classes)
+)
+
+print(
+    "\nXGBoost Brier Score:",
+    round(xgb_brier_score, 4)
+)
+
+print(
+    "XGBoost Normalized Brier Score:",
+    round(xgb_normalized_brier, 4)
+)
+
+
+# FOUR MODEL COMPARISON
+print("\n===== FOUR MODEL COMPARISON =====")
+
+all_model_comparison = pd.DataFrame({
+    "Model": [
+        "Logistic Regression",
+        "Random Forest",
+        "CatBoost",
+        "XGBoost"
+    ],
+    "Accuracy": [
+        accuracy,
+        rf_accuracy,
+        cb_accuracy,
+        xgb_accuracy
+    ],
+    "Log Loss": [
+        logloss,
+        rf_logloss,
+        cb_logloss,
+        xgb_logloss
+    ],
+    "Brier Score": [
+        brier_score,
+        rf_brier_score,
+        cb_brier_score,
+        xgb_brier_score
+    ],
+    "Normalized Brier": [
+        normalized_brier_score,
+        rf_brier_score / len(rf_classes),
+        cb_normalized_brier,
+        xgb_normalized_brier
+    ]
+})
+
+print(
+    all_model_comparison.round(4)
 )
