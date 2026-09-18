@@ -9,6 +9,8 @@ from collections import deque
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelEncoder
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -2955,4 +2957,916 @@ all_model_comparison = pd.DataFrame({
 
 print(
     all_model_comparison.round(4)
+)
+
+
+print("\n  FEATURE ENGINEERING V2")
+
+# FEATURE ENGINEERING V2
+# RELATIVE TEAM STRENGTH FEATURES
+features_v2 = features_v1_1.copy()
+
+
+# GOAL SCORING EDGE
+features_v2["home_goal_scoring_edge"] = (
+    features_v2["home_avg_goals_for"]
+    - features_v2["away_avg_goals_for"]
+)
+
+
+# DEFENSIVE EDGE
+# Positive value means the home team has conceded fewer
+# goals on average than the away team.
+
+features_v2["home_defensive_edge"] = (
+    features_v2["away_avg_goals_against"]
+    - features_v2["home_avg_goals_against"]
+)
+
+
+# HOME ATTACK VS AWAY DEFENSE
+features_v2["home_attack_vs_away_defense"] = (
+    features_v2["home_avg_goals_for"]
+    - features_v2["away_avg_goals_against"]
+)
+
+
+# AWAY ATTACK VS HOME DEFENSE
+features_v2["away_attack_vs_home_defense"] = (
+    features_v2["away_avg_goals_for"]
+    - features_v2["home_avg_goals_against"]
+)
+
+
+# OVERALL WIN RATE EDGE
+features_v2["win_rate_edge"] = (
+    features_v2["home_win_rate"]
+    - features_v2["away_win_rate"]
+)
+
+
+# VENUE WIN RATE EDGE
+features_v2["venue_win_rate_edge"] = (
+    features_v2["home_home_win_rate"]
+    - features_v2["away_away_win_rate"]
+)
+
+
+# RECENT FORM EDGE
+features_v2["recent_points_edge"] = (
+    features_v2["home_recent_points_5"]
+    - features_v2["away_recent_points_5"]
+)
+
+
+# EXPERIENCE EDGE
+features_v2["experience_edge"] = (
+    features_v2["home_matches_before"]
+    - features_v2["away_matches_before"]
+)
+
+
+# REST / MATCH-RECENCY EDGE
+features_v2["days_since_match_edge"] = (
+    features_v2["home_days_since_match_capped"]
+    - features_v2["away_days_since_match_capped"]
+)
+
+
+# DISPLAY NEW FEATURES
+new_v2_features = [
+    "home_goal_scoring_edge",
+    "home_defensive_edge",
+    "home_attack_vs_away_defense",
+    "away_attack_vs_home_defense",
+    "win_rate_edge",
+    "venue_win_rate_edge",
+    "recent_points_edge",
+    "experience_edge",
+    "days_since_match_edge"
+]
+
+print("\n===== FEATURE ENGINEERING V2 =====")
+
+print("\nNew relative features:")
+
+for feature in new_v2_features:
+    print("-", feature)
+
+
+# CHECK NEW FEATURE STATISTICS
+print("\n===== V2 FEATURE STATISTICS =====")
+
+print(
+    features_v2[new_v2_features]
+    .describe()
+    .round(4)
+)
+
+
+# CHECK MISSING VALUES
+print("\n===== V2 MISSING VALUES =====")
+
+print(
+    features_v2[new_v2_features]
+    .isnull()
+    .sum()
+)
+
+
+# CHECK EXTREME VALUES
+print("\n===== V2 FEATURE EXTREMES =====")
+
+for feature in new_v2_features:
+
+    print(
+        f"\n{feature}"
+    )
+
+    print(
+        "Minimum:",
+        round(features_v2[feature].min(), 4)
+    )
+
+    print(
+        "Maximum:",
+        round(features_v2[feature].max(), 4)
+    )
+
+
+# CREATE V2 MODEL FEATURES
+model_features_v2 = model_features + new_v2_features
+
+
+print("\n===== V2 MODEL FEATURES =====")
+
+print(
+    "Number of features:",
+    len(model_features_v2)
+)
+
+print(
+    model_features_v2
+)
+
+
+# CREATE V2 MODEL DATA
+X_v2 = features_v2[model_features_v2]
+
+y_v2 = features_v2["result"]
+
+
+# SORT CHRONOLOGICALLY
+model_df_v2 = features_v2.sort_values(
+    "date"
+).reset_index(drop=True)
+
+
+# TIME-AWARE TRAIN / TEST SPLIT
+split_index_v2 = int(
+    len(model_df_v2) * 0.80
+)
+
+cutoff_date_v2 = model_df_v2.loc[
+    split_index_v2,
+    "date"
+]
+
+train_df_v2 = model_df_v2[
+    model_df_v2["date"] < cutoff_date_v2
+].copy()
+
+test_df_v2 = model_df_v2[
+    model_df_v2["date"] >= cutoff_date_v2
+].copy()
+
+
+# CREATE X / Y DATASETS
+X_train_v2 = train_df_v2[
+    model_features_v2
+]
+
+y_train_v2 = train_df_v2[
+    "result"
+]
+
+X_test_v2 = test_df_v2[
+    model_features_v2
+]
+
+y_test_v2 = test_df_v2[
+    "result"
+]
+
+
+# FINAL V2 SPLIT CHECK
+print("\n===== V2 TRAIN / TEST SPLIT =====")
+
+print(
+    "Training rows:",
+    len(train_df_v2)
+)
+
+print(
+    "Testing rows:",
+    len(test_df_v2)
+)
+
+print(
+    "Training date:",
+    train_df_v2["date"].min(),
+    "to",
+    train_df_v2["date"].max()
+)
+
+print(
+    "Testing date:",
+    test_df_v2["date"].min(),
+    "to",
+    test_df_v2["date"].max()
+)
+
+
+# TEMPORAL LEAKAGE CHECK
+v2_overlapping_dates = set(
+    train_df_v2["date"]
+).intersection(
+    set(test_df_v2["date"])
+)
+
+print(
+    "\nOverlapping dates:",
+    len(v2_overlapping_dates)
+)
+
+if (
+    train_df_v2["date"].max()
+    < test_df_v2["date"].min()
+    and
+    len(v2_overlapping_dates) == 0
+):
+    print(
+        "V2 temporal split verified: PASS"
+    )
+else:
+    print(
+        "V2 temporal split verified: FAIL"
+    )
+
+
+# SAVE FEATURE ENGINEERING V2
+features_v2_output = (
+    PROCESSED_DIR /
+    "champions_league_features_v2.csv"
+)
+
+features_v2.to_csv(
+    features_v2_output,
+    index=False
+)
+
+print(
+    "\nFeature dataset V2 saved successfully."
+)
+
+print(
+    "Saved to:",
+    features_v2_output
+)
+
+
+
+
+# V2 MODEL TESTING
+# LOGISTIC REGRESSION + CATBOOST
+# V2 LOGISTIC REGRESSION
+print("\n===== V2 LOGISTIC REGRESSION =====")
+
+logistic_model_v2 = Pipeline(
+    steps=[
+        (
+            "scaler",
+            StandardScaler()
+        ),
+        (
+            "model",
+            LogisticRegression(
+                max_iter=2000
+            )
+        )
+    ]
+)
+
+logistic_model_v2.fit(
+    X_train_v2,
+    y_train_v2
+)
+
+v2_lr_pred = logistic_model_v2.predict(
+    X_test_v2
+)
+
+v2_lr_prob = logistic_model_v2.predict_proba(
+    X_test_v2
+)
+
+v2_lr_classes = (
+    logistic_model_v2
+    .named_steps["model"]
+    .classes_
+)
+
+
+# V2 LOGISTIC REGRESSION METRICS
+v2_lr_accuracy = accuracy_score(
+    y_test_v2,
+    v2_lr_pred
+)
+
+v2_lr_logloss = log_loss(
+    y_test_v2,
+    v2_lr_prob,
+    labels=v2_lr_classes
+)
+
+
+v2_lr_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(v2_lr_classes)
+}
+
+v2_lr_true_encoded = y_test_v2.map(
+    v2_lr_class_to_index
+).to_numpy()
+
+v2_lr_brier = (
+    (
+        (
+            v2_lr_prob -
+            (
+                v2_lr_true_encoded[:, None]
+                == range(len(v2_lr_classes))
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+
+print(
+    "Accuracy:",
+    round(v2_lr_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(v2_lr_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(v2_lr_brier, 4)
+)
+
+
+# V2 CATBOOST
+print("\n===== V2 CATBOOST =====")
+
+catboost_model_v2 = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+catboost_model_v2.fit(
+    X_train_v2,
+    y_train_v2
+)
+
+v2_cb_pred = catboost_model_v2.predict(
+    X_test_v2
+).ravel()
+
+v2_cb_prob = catboost_model_v2.predict_proba(
+    X_test_v2
+)
+
+v2_cb_classes = (
+    catboost_model_v2.classes_
+)
+
+
+# V2 CATBOOST METRICS
+v2_cb_accuracy = accuracy_score(
+    y_test_v2,
+    v2_cb_pred
+)
+
+v2_cb_logloss = log_loss(
+    y_test_v2,
+    v2_cb_prob,
+    labels=v2_cb_classes
+)
+
+
+v2_cb_class_to_index = {
+    class_name: index
+    for index, class_name in enumerate(v2_cb_classes)
+}
+
+v2_cb_true_encoded = y_test_v2.map(
+    v2_cb_class_to_index
+).to_numpy()
+
+v2_cb_brier = (
+    (
+        (
+            v2_cb_prob -
+            (
+                v2_cb_true_encoded[:, None]
+                == range(len(v2_cb_classes))
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+
+print(
+    "Accuracy:",
+    round(v2_cb_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(v2_cb_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(v2_cb_brier, 4)
+)
+
+
+# COMPARE V1.1 AND V2
+print("\n===== V1.1 VS V2 COMPARISON =====")
+
+feature_comparison = pd.DataFrame({
+    "Model": [
+        "V1.1 Logistic Regression",
+        "V2 Logistic Regression",
+        "V1.1 CatBoost",
+        "V2 CatBoost"
+    ],
+    "Features": [
+        len(model_features),
+        len(model_features_v2),
+        len(model_features),
+        len(model_features_v2)
+    ],
+    "Accuracy": [
+        accuracy,
+        v2_lr_accuracy,
+        cb_accuracy,
+        v2_cb_accuracy
+    ],
+    "Log Loss": [
+        logloss,
+        v2_lr_logloss,
+        cb_logloss,
+        v2_cb_logloss
+    ],
+    "Brier Score": [
+        brier_score,
+        v2_lr_brier,
+        cb_brier_score,
+        v2_cb_brier
+    ]
+})
+
+print(
+    feature_comparison.round(4)
+)
+
+
+# V2 LOGISTIC REGRESSION CONFUSION MATRIX
+print("\n===== V2 LOGISTIC REGRESSION CONFUSION MATRIX =====")
+
+print(
+    confusion_matrix(
+        y_test_v2,
+        v2_lr_pred,
+        labels=v2_lr_classes
+    )
+)
+
+
+# V2 CATBOOST CONFUSION MATRIX
+print("\n===== V2 CATBOOST CONFUSION MATRIX =====")
+
+print(
+    confusion_matrix(
+        y_test_v2,
+        v2_cb_pred,
+        labels=v2_cb_classes
+    )
+)
+
+
+
+
+
+# PROBABILITY CALIBRATION
+# TIME-AWARE CALIBRATION SPLITS
+calibration_cv = TimeSeriesSplit(
+    n_splits=5
+)
+
+
+# CALIBRATE LOGISTIC REGRESSION
+print("\n===== CALIBRATING LOGISTIC REGRESSION =====")
+
+calibrated_logistic = CalibratedClassifierCV(
+    estimator=logistic_model,
+    method="sigmoid",
+    cv=calibration_cv,
+    ensemble=True
+)
+
+calibrated_logistic.fit(
+    X_train,
+    y_train
+)
+
+calibrated_lr_pred = (
+    calibrated_logistic.predict(
+        X_test
+    )
+)
+
+calibrated_lr_prob = (
+    calibrated_logistic.predict_proba(
+        X_test
+    )
+)
+
+calibrated_lr_classes = (
+    calibrated_logistic.classes_
+)
+
+
+# CALIBRATED LOGISTIC METRICS
+calibrated_lr_accuracy = accuracy_score(
+    y_test,
+    calibrated_lr_pred
+)
+
+calibrated_lr_logloss = log_loss(
+    y_test,
+    calibrated_lr_prob,
+    labels=calibrated_lr_classes
+)
+
+calibrated_lr_class_to_index = {
+    class_name: index
+    for index, class_name
+    in enumerate(calibrated_lr_classes)
+}
+
+calibrated_lr_true_encoded = (
+    y_test
+    .map(calibrated_lr_class_to_index)
+    .to_numpy()
+)
+
+calibrated_lr_brier = (
+    (
+        (
+            calibrated_lr_prob -
+            (
+                calibrated_lr_true_encoded[:, None]
+                == range(
+                    len(calibrated_lr_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+
+print(
+    "Accuracy:",
+    round(
+        calibrated_lr_accuracy,
+        4
+    )
+)
+
+print(
+    "Log Loss:",
+    round(
+        calibrated_lr_logloss,
+        4
+    )
+)
+
+print(
+    "Brier Score:",
+    round(
+        calibrated_lr_brier,
+        4
+    )
+)
+
+
+# CALIBRATE V2 CATBOOST
+print("\n===== CALIBRATING V2 CATBOOST =====")
+
+calibrated_catboost = CalibratedClassifierCV(
+    estimator=catboost_model_v2,
+    method="sigmoid",
+    cv=calibration_cv,
+    ensemble=True
+)
+
+calibrated_catboost.fit(
+    X_train_v2,
+    y_train_v2
+)
+
+calibrated_cb_pred = (
+    calibrated_catboost.predict(
+        X_test_v2
+    )
+)
+
+calibrated_cb_prob = (
+    calibrated_catboost.predict_proba(
+        X_test_v2
+    )
+)
+
+calibrated_cb_classes = (
+    calibrated_catboost.classes_
+)
+
+
+# CALIBRATED CATBOOST METRICS
+calibrated_cb_accuracy = accuracy_score(
+    y_test_v2,
+    calibrated_cb_pred
+)
+
+calibrated_cb_logloss = log_loss(
+    y_test_v2,
+    calibrated_cb_prob,
+    labels=calibrated_cb_classes
+)
+
+calibrated_cb_class_to_index = {
+    class_name: index
+    for index, class_name
+    in enumerate(calibrated_cb_classes)
+}
+
+calibrated_cb_true_encoded = (
+    y_test_v2
+    .map(calibrated_cb_class_to_index)
+    .to_numpy()
+)
+
+calibrated_cb_brier = (
+    (
+        (
+            calibrated_cb_prob -
+            (
+                calibrated_cb_true_encoded[:, None]
+                == range(
+                    len(calibrated_cb_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    ).sum(axis=1)
+).mean()
+
+
+print(
+    "Accuracy:",
+    round(
+        calibrated_cb_accuracy,
+        4
+    )
+)
+
+print(
+    "Log Loss:",
+    round(
+        calibrated_cb_logloss,
+        4
+    )
+)
+
+print(
+    "Brier Score:",
+    round(
+        calibrated_cb_brier,
+        4
+    )
+)
+
+
+# CALIBRATION COMPARISON
+print("\n===== CALIBRATION COMPARISON =====")
+
+calibration_comparison = pd.DataFrame({
+    "Model": [
+        "V1.1 Logistic Regression",
+        "Calibrated Logistic Regression",
+        "V2 CatBoost",
+        "Calibrated V2 CatBoost"
+    ],
+    "Accuracy": [
+        accuracy,
+        calibrated_lr_accuracy,
+        v2_cb_accuracy,
+        calibrated_cb_accuracy
+    ],
+    "Log Loss": [
+        logloss,
+        calibrated_lr_logloss,
+        v2_cb_logloss,
+        calibrated_cb_logloss
+    ],
+    "Brier Score": [
+        brier_score,
+        calibrated_lr_brier,
+        v2_cb_brier,
+        calibrated_cb_brier
+    ]
+})
+
+print(
+    calibration_comparison.round(4)
+)
+
+
+
+
+
+# CALIBRATED CATBOOST PROBABILITY DIAGNOSTICS
+print("\n===== CALIBRATED CATBOOST DIAGNOSTICS =====")
+
+
+# PREDICTED CLASS DISTRIBUTION
+calibrated_cb_counts = (
+    pd.Series(calibrated_cb_pred)
+    .value_counts()
+    .reindex(
+        calibrated_cb_classes,
+        fill_value=0
+    )
+)
+
+print("\nPredicted class counts:")
+print(calibrated_cb_counts)
+
+print("\nPredicted class percentages:")
+print(
+    (
+        calibrated_cb_counts /
+        len(calibrated_cb_pred)
+        * 100
+    ).round(2)
+)
+
+
+# ACTUAL TEST DISTRIBUTION
+actual_cb_counts = (
+    y_test_v2
+    .value_counts()
+    .reindex(
+        calibrated_cb_classes,
+        fill_value=0
+    )
+)
+
+print("\nActual test class counts:")
+print(actual_cb_counts)
+
+print("\nActual test class percentages:")
+print(
+    (
+        actual_cb_counts /
+        len(y_test_v2)
+        * 100
+    ).round(2)
+)
+
+
+# AVERAGE PREDICTED PROBABILITIES
+calibrated_cb_average_probabilities = pd.Series(
+    calibrated_cb_prob.mean(axis=0),
+    index=calibrated_cb_classes
+)
+
+print("\nAverage predicted probabilities:")
+print(
+    calibrated_cb_average_probabilities.round(4)
+)
+
+print("\nAverage predicted probabilities (%):")
+print(
+    (
+        calibrated_cb_average_probabilities
+        * 100
+    ).round(2)
+)
+
+
+# ACTUAL FREQUENCY VS PREDICTED PROBABILITY
+calibrated_cb_probability_comparison = pd.DataFrame({
+    "average_predicted_probability":
+        calibrated_cb_average_probabilities,
+
+    "actual_frequency":
+        (
+            y_test_v2
+            .value_counts(normalize=True)
+            .reindex(calibrated_cb_classes)
+        )
+})
+
+print(
+    "\n===== PROBABILITY VS ACTUAL FREQUENCY ====="
+)
+
+print(
+    calibrated_cb_probability_comparison.round(4)
+)
+
+
+# DRAW PROBABILITY ANALYSIS
+draw_index_cb = list(
+    calibrated_cb_classes
+).index("D")
+
+calibrated_draw_probabilities = (
+    calibrated_cb_prob[:, draw_index_cb]
+)
+
+print(
+    "\n===== CALIBRATED DRAW PROBABILITY ====="
+)
+
+print(
+    "Average draw probability:",
+    round(
+        calibrated_draw_probabilities.mean(),
+        4
+    )
+)
+
+print(
+    "Maximum draw probability:",
+    round(
+        calibrated_draw_probabilities.max(),
+        4
+    )
+)
+
+print(
+    "Minimum draw probability:",
+    round(
+        calibrated_draw_probabilities.min(),
+        4
+    )
+)
+
+
+# CONFUSION MATRIX
+print(
+    "\n===== CALIBRATED CATBOOST CONFUSION MATRIX ====="
+)
+
+print(
+    confusion_matrix(
+        y_test_v2,
+        calibrated_cb_pred,
+        labels=calibrated_cb_classes
+    )
+)
+
+
+# CLASSIFICATION REPORT
+print(
+    "\n===== CALIBRATED CATBOOST CLASSIFICATION REPORT ====="
+)
+
+print(
+    classification_report(
+        y_test_v2,
+        calibrated_cb_pred,
+        labels=calibrated_cb_classes
+    )
 )
