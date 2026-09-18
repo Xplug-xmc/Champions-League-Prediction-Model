@@ -4459,3 +4459,149 @@ final_feature_comparison = pd.DataFrame({
 print(
     final_feature_comparison.round(4)
 )
+
+
+
+
+
+# SEASON-BY-SEASON ROBUSTNESS TEST
+# CALIBRATED V2 CATBOOST
+print("\n===== SEASON-BY-SEASON ROBUSTNESS =====")
+
+
+# CREATE TEST RESULTS DATAFRAME
+season_results = test_df_v2[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+season_results["predicted_result"] = (
+    calibrated_cb_pred
+)
+
+season_results["away_probability"] = (
+    calibrated_cb_prob[
+        :,
+        list(calibrated_cb_classes).index("A")
+    ]
+)
+
+season_results["draw_probability"] = (
+    calibrated_cb_prob[
+        :,
+        list(calibrated_cb_classes).index("D")
+    ]
+)
+
+season_results["home_probability"] = (
+    calibrated_cb_prob[
+        :,
+        list(calibrated_cb_classes).index("H")
+    ]
+)
+
+
+# EVALUATE EACH SEASON
+season_metrics = []
+
+for season in sorted(
+    season_results["season"].unique()
+):
+
+    season_data = season_results[
+        season_results["season"] == season
+    ]
+
+    season_accuracy = accuracy_score(
+        season_data["result"],
+        season_data["predicted_result"]
+    )
+
+    season_logloss = log_loss(
+        season_data["result"],
+        season_data[
+            [
+                "away_probability",
+                "draw_probability",
+                "home_probability"
+            ]
+        ],
+        labels=["A", "D", "H"]
+    )
+
+    season_true_encoded = (
+        season_data["result"]
+        .map({
+            "A": 0,
+            "D": 1,
+            "H": 2
+        })
+        .to_numpy()
+    )
+
+    season_probabilities = (
+        season_data[
+            [
+                "away_probability",
+                "draw_probability",
+                "home_probability"
+            ]
+        ]
+        .to_numpy()
+    )
+
+    season_brier = (
+        (
+            (
+                season_probabilities -
+                (
+                    season_true_encoded[:, None]
+                    == range(3)
+                ).astype(float)
+            ) ** 2
+        )
+        .sum(axis=1)
+        .mean()
+    )
+
+    season_metrics.append({
+        "season": season,
+        "matches": len(season_data),
+        "accuracy": season_accuracy,
+        "log_loss": season_logloss,
+        "brier_score": season_brier
+    })
+
+
+# DISPLAY SEASON METRICS
+season_metrics_df = pd.DataFrame(
+    season_metrics
+)
+
+print(
+    season_metrics_df.round(4)
+)
+
+
+# TEST SET OVERALL RESULT
+print("\n===== OVERALL TEST SET =====")
+
+print(
+    "Accuracy:",
+    round(calibrated_cb_accuracy, 4)
+)
+
+print(
+    "Log Loss:",
+    round(calibrated_cb_logloss, 4)
+)
+
+print(
+    "Brier Score:",
+    round(calibrated_cb_brier, 4)
+)
