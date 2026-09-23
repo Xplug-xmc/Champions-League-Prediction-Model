@@ -1,0 +1,14 @@
+{
+    "model": "Calibrated V2 CatBoost",
+    "model_artifact": "data/models/calibrated_v2_catboost_evaluation.joblib",
+    "feature_version": "V2",
+    "matches": 431,
+    "test_period": {
+        "start": "2023-11-29 00:00:00",
+        "end": "2026-05-30 00:00:00"
+    },
+    "accuracy": 0.5870069605568445,
+    "log_loss": 0.9388306682494969,
+    "brier_score": 0.5546188740533323,
+    "normalized_brier_score": 0.18487295801777745
+}

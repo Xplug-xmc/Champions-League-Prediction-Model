@@ -1,0 +1,16 @@
+{
+    "total_predictions": 431,
+    "correct_predictions": 253,
+    "incorrect_predictions": 178,
+    "accuracy": 0.5870069605568445,
+    "actual_draws": 75,
+    "predicted_draws": 0,
+    "correct_draws": 0,
+    "draw_recall": 0.0,
+    "error_distribution": {
+        "Correct": 253,
+        "Missed Draw": 75,
+        "Away vs Home": 60,
+        "Home vs Away": 43
+    }
+}

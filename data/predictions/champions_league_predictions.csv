@@ -1,0 +1,2 @@
+prediction_id,date,home_team,away_team,home_win_probability,draw_probability,away_win_probability,predicted_result,predicted_result_name,actual_result,status
+61e1b5e5-19ff-488c-b055-8c78766d7080,2026-09-20,Real Madrid,Manchester City,60.00715446834054,18.09627148887392,21.896574042785545,H,Home Win,H,Completed

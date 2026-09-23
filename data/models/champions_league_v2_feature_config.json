@@ -1,0 +1,31 @@
+{
+    "feature_version": "V2",
+    "number_of_features": 25,
+    "features": [
+        "home_matches_before",
+        "away_matches_before",
+        "home_avg_goals_for",
+        "home_avg_goals_against",
+        "away_avg_goals_for",
+        "away_avg_goals_against",
+        "home_win_rate",
+        "away_win_rate",
+        "home_home_win_rate",
+        "away_away_win_rate",
+        "home_recent_points_5",
+        "away_recent_points_5",
+        "home_days_since_match_capped",
+        "away_days_since_match_capped",
+        "home_has_previous_match",
+        "away_has_previous_match",
+        "home_goal_scoring_edge",
+        "home_defensive_edge",
+        "home_attack_vs_away_defense",
+        "away_attack_vs_home_defense",
+        "win_rate_edge",
+        "venue_win_rate_edge",
+        "recent_points_edge",
+        "experience_edge",
+        "days_since_match_edge"
+    ]
+}

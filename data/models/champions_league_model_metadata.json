@@ -1,0 +1,33 @@
+{
+    "model_name": "Calibrated CatBoost",
+    "feature_version": "V2",
+    "training_matches": 2122,
+    "historical_period": {
+        "start": "2010-09-14",
+        "end": "2026-05-30"
+    },
+    "classes": [
+        "A",
+        "D",
+        "H"
+    ],
+    "catboost_parameters": {
+        "iterations": 500,
+        "depth": 5,
+        "learning_rate": 0.03,
+        "loss_function": "MultiClass",
+        "random_seed": 42
+    },
+    "calibration": {
+        "method": "sigmoid",
+        "cv": "TimeSeriesSplit",
+        "n_splits": 5,
+        "ensemble": true
+    },
+    "evaluation_results": {
+        "test_period": "2023-11-29 to 2026-05-30",
+        "accuracy": 0.587,
+        "log_loss": 0.9388,
+        "brier_score": 0.5546
+    }
+}

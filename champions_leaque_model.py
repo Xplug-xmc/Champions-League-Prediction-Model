@@ -2,6 +2,9 @@
 import numpy as np
 import pandas as pd
 import re
+import json
+import joblib
+import uuid
 from pathlib import Path
 from collections import deque
 
@@ -4604,4 +4607,6339 @@ print(
 print(
     "Brier Score:",
     round(calibrated_cb_brier, 4)
+)
+
+
+
+
+# SAVE FINAL MODEL ARTIFACTS
+# CREATE MODEL DIRECTORY
+MODEL_DIR = Path(
+    "data/models"
+)
+
+MODEL_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# SAVE THE EVALUATION MODEL
+# This is the exact model that produced our benchmark:
+#
+# Accuracy:   58.70%
+# Log Loss:    0.9388
+# Brier:       0.5546
+
+evaluation_model_path = (
+    MODEL_DIR /
+    "calibrated_v2_catboost_evaluation.joblib"
+)
+
+joblib.dump(
+    calibrated_catboost,
+    evaluation_model_path
+)
+
+print(
+    "\nEvaluation model saved to:"
+)
+
+print(
+    evaluation_model_path
+)
+
+
+# RETRAIN SELECTED MODEL ON FULL V2 DATA
+print(
+    "\n===== TRAINING PRODUCTION MODEL ====="
+)
+
+X_full_v2 = features_v2[
+    model_features_v2
+]
+
+y_full_v2 = features_v2[
+    "result"
+]
+
+
+# CREATE TIME-AWARE CALIBRATION
+production_calibration_cv = TimeSeriesSplit(
+    n_splits=5
+)
+
+
+# CREATE BASE CATBOOST MODEL
+production_catboost = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+
+# CREATE CALIBRATED PRODUCTION MODEL
+production_model = CalibratedClassifierCV(
+    estimator=production_catboost,
+    method="sigmoid",
+    cv=production_calibration_cv,
+    ensemble=True
+)
+
+
+# TRAIN PRODUCTION MODEL
+production_model.fit(
+    X_full_v2,
+    y_full_v2
+)
+
+print(
+    "Production model training completed successfully."
+)
+
+
+# CHECK MODEL CLASSES
+production_classes = (
+    production_model.classes_
+)
+
+print(
+    "\nProduction model classes:"
+)
+
+print(
+    production_classes
+)
+
+
+# SAVE PRODUCTION MODEL
+production_model_path = (
+    MODEL_DIR /
+    "champions_league_calibrated_v2_catboost.joblib"
+)
+
+joblib.dump(
+    production_model,
+    production_model_path
+)
+
+print(
+    "\nProduction model saved to:"
+)
+
+print(
+    production_model_path
+)
+
+
+# SAVE FEATURE CONFIGURATION
+feature_config = {
+    "feature_version": "V2",
+    "number_of_features": len(
+        model_features_v2
+    ),
+    "features": model_features_v2
+}
+
+feature_config_path = (
+    MODEL_DIR /
+    "champions_league_v2_feature_config.json"
+)
+
+with open(
+    feature_config_path,
+    "w",
+    encoding="utf-8"
+) as file:
+
+    json.dump(
+        feature_config,
+        file,
+        indent=4
+    )
+
+print(
+    "\nFeature configuration saved to:"
+)
+
+print(
+    feature_config_path
+)
+
+
+# SAVE MODEL METADATA
+model_metadata = {
+    "model_name": (
+        "Calibrated CatBoost"
+    ),
+
+    "feature_version": "V2",
+
+    "training_matches": len(
+        features_v2
+    ),
+
+    "historical_period": {
+        "start": str(
+            features_v2["date"].min().date()
+        ),
+        "end": str(
+            features_v2["date"].max().date()
+        )
+    },
+
+    "classes": [
+        str(class_name)
+        for class_name in production_classes
+    ],
+
+    "catboost_parameters": {
+        "iterations": 500,
+        "depth": 5,
+        "learning_rate": 0.03,
+        "loss_function": "MultiClass",
+        "random_seed": 42
+    },
+
+    "calibration": {
+        "method": "sigmoid",
+        "cv": "TimeSeriesSplit",
+        "n_splits": 5,
+        "ensemble": True
+    },
+
+    "evaluation_results": {
+        "test_period": (
+            "2023-11-29 to 2026-05-30"
+        ),
+        "accuracy": 0.5870,
+        "log_loss": 0.9388,
+        "brier_score": 0.5546
+    }
+}
+
+metadata_path = (
+    MODEL_DIR /
+    "champions_league_model_metadata.json"
+)
+
+with open(
+    metadata_path,
+    "w",
+    encoding="utf-8"
+) as file:
+
+    json.dump(
+        model_metadata,
+        file,
+        indent=4
+    )
+
+print(
+    "\nModel metadata saved to:"
+)
+
+print(
+    metadata_path
+)
+
+
+# RELOAD MODEL TO VERIFY SAVING
+print(
+    "\n===== MODEL SAVE VERIFICATION ====="
+)
+
+loaded_model = joblib.load(
+    production_model_path
+)
+
+print(
+    "Model successfully reloaded."
+)
+
+
+# TEST LOADED MODEL
+sample_probabilities = (
+    loaded_model.predict_proba(
+        X_full_v2.head(1)
+    )
+)
+
+print(
+    "\nSample probability output:"
+)
+
+print(
+    sample_probabilities
+)
+
+print(
+    "\nModel artifact verification: PASS"
+)
+
+
+
+print("\n PRODUCTION PREDICTION ENGINE")
+
+
+# PRODUCTION PREDICTION ENGINE
+# LOAD PRODUCTION MODEL
+production_model = joblib.load(
+    "data/models/champions_league_calibrated_v2_catboost.joblib"
+)
+
+
+# LOAD FEATURE CONFIGURATION
+with open(
+    "data/models/champions_league_v2_feature_config.json",
+    "r",
+    encoding="utf-8"
+) as file:
+
+    feature_config = json.load(file)
+
+
+model_features_v2 = feature_config["features"]
+
+
+# LOAD HISTORICAL MATCH DATA
+historical_matches = pd.read_csv(
+    "data/processed/champions_league_all_seasons_clean.csv"
+)
+
+historical_matches["date"] = pd.to_datetime(
+    historical_matches["date"]
+)
+
+historical_matches = historical_matches.sort_values(
+    "date"
+).reset_index(drop=True)
+
+
+print(
+    "\n===== PRODUCTION PREDICTION ENGINE ====="
+)
+
+print(
+    "Production model loaded successfully."
+)
+
+print(
+    "Historical matches loaded:",
+    len(historical_matches)
+)
+
+print(
+    "Number of model features:",
+    len(model_features_v2)
+)
+
+
+# CREATE EMPTY TEAM STATISTICS
+def create_prediction_team_stats():
+
+    return {
+        "matches": 0,
+
+        "goals_for": 0,
+        "goals_against": 0,
+
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+
+        "home_matches": 0,
+        "home_wins": 0,
+
+        "away_matches": 0,
+        "away_wins": 0,
+
+        "recent_points": deque(
+            maxlen=5
+        ),
+
+        "last_match_date": None
+    }
+
+
+# BUILD PRE-MATCH TEAM STATISTICS
+def build_team_stats_before_date(
+    match_date
+):
+
+    match_date = pd.to_datetime(
+        match_date
+    )
+
+    # USE ONLY MATCHES BEFORE THE PREDICTION DATE
+    previous_matches = historical_matches[
+        historical_matches["date"] < match_date
+    ].copy()
+
+    team_stats = {}
+
+
+    # PROCESS HISTORICAL MATCHES
+    for _, row in previous_matches.iterrows():
+
+        home_team = row["home_team"]
+        away_team = row["away_team"]
+
+        home_goals = int(
+            row["home_goals"]
+        )
+
+        away_goals = int(
+            row["away_goals"]
+        )
+
+        result = row["result"]
+
+
+        # CREATE TEAM RECORDS IF NECESSARY
+        if home_team not in team_stats:
+
+            team_stats[home_team] = (
+                create_prediction_team_stats()
+            )
+
+        if away_team not in team_stats:
+
+            team_stats[away_team] = (
+                create_prediction_team_stats()
+            )
+
+
+        home_stats = team_stats[
+            home_team
+        ]
+
+        away_stats = team_stats[
+            away_team
+        ]
+
+
+        # GENERAL MATCH STATISTICS
+        home_stats["matches"] += 1
+        away_stats["matches"] += 1
+
+
+        home_stats["goals_for"] += (
+            home_goals
+        )
+
+        home_stats["goals_against"] += (
+            away_goals
+        )
+
+
+        away_stats["goals_for"] += (
+            away_goals
+        )
+
+        away_stats["goals_against"] += (
+            home_goals
+        )
+
+
+        # VENUE STATISTICS
+        home_stats["home_matches"] += 1
+
+        away_stats["away_matches"] += 1
+
+
+        # RESULT STATISTICS
+        if result == "H":
+
+            home_stats["wins"] += 1
+            away_stats["losses"] += 1
+
+            home_stats["home_wins"] += 1
+
+            home_stats[
+                "recent_points"
+            ].append(3)
+
+            away_stats[
+                "recent_points"
+            ].append(0)
+
+
+        elif result == "A":
+
+            home_stats["losses"] += 1
+            away_stats["wins"] += 1
+
+            away_stats["away_wins"] += 1
+
+            home_stats[
+                "recent_points"
+            ].append(0)
+
+            away_stats[
+                "recent_points"
+            ].append(3)
+
+
+        else:
+
+            home_stats["draws"] += 1
+            away_stats["draws"] += 1
+
+            home_stats[
+                "recent_points"
+            ].append(1)
+
+            away_stats[
+                "recent_points"
+            ].append(1)
+
+
+        # LAST MATCH DATE
+        home_stats[
+            "last_match_date"
+        ] = row["date"]
+
+        away_stats[
+            "last_match_date"
+        ] = row["date"]
+
+
+    return team_stats
+
+
+# PREDICT A NEW MATCH
+def predict_match(
+    home_team,
+    away_team,
+    match_date
+):
+
+    # DEBUG: CONFIRM FUNCTION STARTED
+    print(
+        "\n===== PREDICT_MATCH FUNCTION STARTED ====="
+    )
+
+    print(
+        "Home team:",
+        home_team
+    )
+
+    print(
+        "Away team:",
+        away_team
+    )
+
+    print(
+        "Match date:",
+        match_date
+    )
+
+
+    # CONVERT DATE
+    match_date = pd.to_datetime(
+        match_date
+    )
+
+
+    # BUILD PRE-MATCH TEAM STATISTICS
+    team_stats = build_team_stats_before_date(
+        match_date
+    )
+
+    print(
+        "Historical team statistics built successfully."
+    )
+
+    print(
+        "Teams available:",
+        len(team_stats)
+    )
+
+
+    # CREATE EMPTY RECORD FOR UNKNOWN HOME TEAM
+    if home_team not in team_stats:
+
+        team_stats[home_team] = (
+            create_prediction_team_stats()
+        )
+
+        print(
+            f"Warning: {home_team} has no "
+            "previous Champions League history "
+            "in the dataset."
+        )
+
+
+    # CREATE EMPTY RECORD FOR UNKNOWN AWAY TEAM
+    if away_team not in team_stats:
+
+        team_stats[away_team] = (
+            create_prediction_team_stats()
+        )
+
+        print(
+            f"Warning: {away_team} has no "
+            "previous Champions League history "
+            "in the dataset."
+        )
+
+
+    # GET TEAM STATISTICS
+    home_stats = team_stats[
+        home_team
+    ]
+
+    away_stats = team_stats[
+        away_team
+    ]
+
+
+    # BASIC PRE-MATCH FEATURES
+    home_matches = home_stats[
+        "matches"
+    ]
+
+    away_matches = away_stats[
+        "matches"
+    ]
+
+
+    # AVERAGE GOALS FOR
+    home_avg_goals_for = (
+        home_stats["goals_for"]
+        / home_matches
+        if home_matches > 0
+        else 0
+    )
+
+    away_avg_goals_for = (
+        away_stats["goals_for"]
+        / away_matches
+        if away_matches > 0
+        else 0
+    )
+
+
+    # AVERAGE GOALS AGAINST
+    home_avg_goals_against = (
+        home_stats["goals_against"]
+        / home_matches
+        if home_matches > 0
+        else 0
+    )
+
+    away_avg_goals_against = (
+        away_stats["goals_against"]
+        / away_matches
+        if away_matches > 0
+        else 0
+    )
+
+
+    # WIN RATE
+    home_win_rate = (
+        home_stats["wins"]
+        / home_matches
+        if home_matches > 0
+        else 0
+    )
+
+    away_win_rate = (
+        away_stats["wins"]
+        / away_matches
+        if away_matches > 0
+        else 0
+    )
+
+
+    # VENUE WIN RATE
+    home_home_win_rate = (
+        home_stats["home_wins"]
+        / home_stats["home_matches"]
+        if home_stats["home_matches"] > 0
+        else 0
+    )
+
+    away_away_win_rate = (
+        away_stats["away_wins"]
+        / away_stats["away_matches"]
+        if away_stats["away_matches"] > 0
+        else 0
+    )
+
+
+    # RECENT FORM
+    home_recent_points_5 = sum(
+        home_stats["recent_points"]
+    )
+
+    away_recent_points_5 = sum(
+        away_stats["recent_points"]
+    )
+
+
+    # DAYS SINCE LAST MATCH
+    if (
+        home_stats["last_match_date"]
+        is None
+    ):
+
+        home_days_since_match = -1
+
+    else:
+
+        home_days_since_match = (
+            match_date
+            - home_stats["last_match_date"]
+        ).days
+
+
+    if (
+        away_stats["last_match_date"]
+        is None
+    ):
+
+        away_days_since_match = -1
+
+    else:
+
+        away_days_since_match = (
+            match_date
+            - away_stats["last_match_date"]
+        ).days
+
+
+    # CAP DAYS SINCE LAST MATCH
+    home_days_since_match_capped = max(
+        0,
+        min(
+            home_days_since_match,
+            365
+        )
+    )
+
+    away_days_since_match_capped = max(
+        0,
+        min(
+            away_days_since_match,
+            365
+        )
+    )
+
+
+    # PREVIOUS MATCH FLAGS
+    home_has_previous_match = int(
+        home_days_since_match >= 0
+    )
+
+    away_has_previous_match = int(
+        away_days_since_match >= 0
+    )
+
+
+    # V2 RELATIVE FEATURES
+    home_goal_scoring_edge = (
+        home_avg_goals_for
+        - away_avg_goals_for
+    )
+
+    home_defensive_edge = (
+        away_avg_goals_against
+        - home_avg_goals_against
+    )
+
+    home_attack_vs_away_defense = (
+        home_avg_goals_for
+        - away_avg_goals_against
+    )
+
+    away_attack_vs_home_defense = (
+        away_avg_goals_for
+        - home_avg_goals_against
+    )
+
+    win_rate_edge = (
+        home_win_rate
+        - away_win_rate
+    )
+
+    venue_win_rate_edge = (
+        home_home_win_rate
+        - away_away_win_rate
+    )
+
+    recent_points_edge = (
+        home_recent_points_5
+        - away_recent_points_5
+    )
+
+    experience_edge = (
+        home_matches
+        - away_matches
+    )
+
+    days_since_match_edge = (
+        home_days_since_match_capped
+        - away_days_since_match_capped
+    )
+
+
+    # CREATE PREDICTION DATAFRAME
+    prediction_row = pd.DataFrame([
+        {
+
+            "home_matches_before":
+                home_matches,
+
+            "away_matches_before":
+                away_matches,
+
+
+            "home_avg_goals_for":
+                home_avg_goals_for,
+
+            "home_avg_goals_against":
+                home_avg_goals_against,
+
+
+            "away_avg_goals_for":
+                away_avg_goals_for,
+
+            "away_avg_goals_against":
+                away_avg_goals_against,
+
+
+            "home_win_rate":
+                home_win_rate,
+
+            "away_win_rate":
+                away_win_rate,
+
+
+            "home_home_win_rate":
+                home_home_win_rate,
+
+            "away_away_win_rate":
+                away_away_win_rate,
+
+
+            "home_recent_points_5":
+                home_recent_points_5,
+
+            "away_recent_points_5":
+                away_recent_points_5,
+
+
+            "home_days_since_match_capped":
+                home_days_since_match_capped,
+
+            "away_days_since_match_capped":
+                away_days_since_match_capped,
+
+
+            "home_has_previous_match":
+                home_has_previous_match,
+
+            "away_has_previous_match":
+                away_has_previous_match,
+
+
+            "home_goal_scoring_edge":
+                home_goal_scoring_edge,
+
+            "home_defensive_edge":
+                home_defensive_edge,
+
+
+            "home_attack_vs_away_defense":
+                home_attack_vs_away_defense,
+
+            "away_attack_vs_home_defense":
+                away_attack_vs_home_defense,
+
+
+            "win_rate_edge":
+                win_rate_edge,
+
+            "venue_win_rate_edge":
+                venue_win_rate_edge,
+
+
+            "recent_points_edge":
+                recent_points_edge,
+
+            "experience_edge":
+                experience_edge,
+
+            "days_since_match_edge":
+                days_since_match_edge
+
+        }
+    ])
+
+
+    # FORCE EXACT MODEL FEATURE ORDER
+    prediction_row = prediction_row[
+        model_features_v2
+    ]
+
+
+    # DEBUG: VERIFY PREDICTION DATA
+    print(
+        "\nPrediction feature row created successfully."
+    )
+
+    print(
+        "Prediction feature shape:",
+        prediction_row.shape
+    )
+
+    print(
+        "Expected feature count:",
+        len(model_features_v2)
+    )
+
+
+    # GENERATE PROBABILITIES
+    probabilities = (
+        production_model
+        .predict_proba(
+            prediction_row
+        )[0]
+    )
+
+    classes = (
+        production_model.classes_
+    )
+
+
+    # MAP CLASSES TO PROBABILITIES
+    probability_map = dict(
+        zip(
+            classes,
+            probabilities
+        )
+    )
+
+
+    # EXTRACT H / D / A PROBABILITIES
+    home_probability = (
+        probability_map["H"] * 100
+    )
+
+    draw_probability = (
+        probability_map["D"] * 100
+    )
+
+    away_probability = (
+        probability_map["A"] * 100
+    )
+
+
+    # DETERMINE HIGHEST-PROBABILITY RESULT
+    predicted_result = max(
+        probability_map,
+        key=probability_map.get
+    )
+
+
+    result_names = {
+        "H": "Home Win",
+        "D": "Draw",
+        "A": "Away Win"
+    }
+
+
+    # DISPLAY PREDICTION
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "CHAMPIONS LEAGUE MATCH PREDICTION"
+    )
+
+    print(
+        "========================================"
+    )
+
+
+    print(
+        f"Home: {home_team}"
+    )
+
+    print(
+        f"Away: {away_team}"
+    )
+
+    print(
+        f"Date: {match_date.date()}"
+    )
+
+
+    print(
+        "\nProbabilities:"
+    )
+
+
+    print(
+        f"Home Win: {home_probability:.2f}%"
+    )
+
+    print(
+        f"Draw:     {draw_probability:.2f}%"
+    )
+
+    print(
+        f"Away Win: {away_probability:.2f}%"
+    )
+
+
+    print(
+        "\nHighest probability:"
+    )
+
+    print(
+        f"{result_names[predicted_result]}"
+    )
+
+
+    # RETURN PREDICTION
+    return {
+    "home_team": home_team,
+    "away_team": away_team,
+    "date": str(match_date.date()),
+    "home_win_probability": float(home_probability),
+    "draw_probability": float(draw_probability),
+    "away_win_probability": float(away_probability),
+    "predicted_result": predicted_result,
+    "predicted_result_name": result_names[predicted_result]
+}
+
+
+# TEST PRODUCTION PREDICTION ENGINE
+#print(
+#    "\n===== STARTING PREDICTION TEST ====="
+#)
+
+
+#prediction = predict_match(
+#    home_team="Real Madrid",
+#    away_team="Manchester City",
+#    match_date="2026-09-20"
+#)
+
+
+#print(
+#    "\n===== PREDICTION TEST COMPLETED ====="
+#)
+
+
+#print(
+#    "\nReturned prediction dictionary:"
+#)
+
+#print(
+#    prediction
+#)
+
+
+print("\n PREDICTION TRACKING SYSTEM")
+
+# PREDICTION TRACKING SYSTEM
+# CREATE PREDICTION DIRECTORY
+PREDICTION_DIR = Path(
+    "data/predictions"
+)
+
+PREDICTION_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# PREDICTION LOG FILE
+PREDICTION_LOG = (
+    PREDICTION_DIR /
+    "champions_league_predictions.csv"
+)
+
+
+# CREATE PREDICTION RECORD
+# SAVE PREDICTION
+# PREVENT DUPLICATE FIXTURES
+def save_prediction(
+    prediction
+):
+
+    # CREATE PREDICTION ID
+    prediction_record = {
+        "prediction_id": str(
+            uuid.uuid4()
+        ),
+
+        "date":
+            prediction["date"],
+
+        "home_team":
+            prediction["home_team"],
+
+        "away_team":
+            prediction["away_team"],
+
+        "home_win_probability":
+            float(
+                prediction[
+                    "home_win_probability"
+                ]
+            ),
+
+        "draw_probability":
+            float(
+                prediction[
+                    "draw_probability"
+                ]
+            ),
+
+        "away_win_probability":
+            float(
+                prediction[
+                    "away_win_probability"
+                ]
+            ),
+
+        "predicted_result":
+            prediction["predicted_result"],
+
+        "predicted_result_name":
+            prediction[
+                "predicted_result_name"
+            ],
+
+        "actual_result":
+            "",
+
+        "status":
+            "Pending"
+    }
+
+
+    # LOAD EXISTING PREDICTIONS
+    if PREDICTION_LOG.exists():
+
+        predictions_df = pd.read_csv(
+            PREDICTION_LOG
+        )
+
+        # Make sure text columns remain text
+        predictions_df[
+            "actual_result"
+        ] = predictions_df[
+            "actual_result"
+        ].astype("object")
+
+        predictions_df[
+            "status"
+        ] = predictions_df[
+            "status"
+        ].astype("object")
+
+
+        # CHECK FOR EXISTING FIXTURE
+        duplicate_mask = (
+            (predictions_df["date"].astype(str)
+             == str(prediction["date"]))
+            &
+            (predictions_df["home_team"]
+             == prediction["home_team"])
+            &
+            (predictions_df["away_team"]
+             == prediction["away_team"])
+        )
+
+
+        if duplicate_mask.any():
+
+            existing_record = (
+                predictions_df[
+                    duplicate_mask
+                ].iloc[0]
+            )
+
+            print(
+                "\nPrediction already exists for this fixture."
+            )
+
+            print(
+                "Prediction ID:",
+                existing_record[
+                    "prediction_id"
+                ]
+            )
+
+            print(
+                "Status:",
+                existing_record["status"]
+            )
+
+            return existing_record.to_dict()
+
+
+    # SAVE NEW PREDICTION
+    prediction_df = pd.DataFrame([
+        prediction_record
+    ])
+
+
+    if not PREDICTION_LOG.exists():
+
+        prediction_df.to_csv(
+            PREDICTION_LOG,
+            index=False
+        )
+
+    else:
+
+        prediction_df.to_csv(
+            PREDICTION_LOG,
+            mode="a",
+            header=False,
+            index=False
+        )
+
+
+    print(
+        "\nPrediction saved successfully."
+    )
+
+    print(
+        "Prediction ID:",
+        prediction_record[
+            "prediction_id"
+        ]
+    )
+
+    print(
+        "Saved to:",
+        PREDICTION_LOG
+    )
+
+
+    return prediction_record
+
+
+
+# CLEAN DUPLICATE TEST PREDICTIONS
+#if PREDICTION_LOG.exists():
+
+#    predictions_df = pd.read_csv(
+        #PREDICTION_LOG
+    #)
+
+#    predictions_df = predictions_df.drop_duplicates(
+#        subset=[
+#            "date",
+#            "home_team",
+#            "away_team"
+#        ],
+#        keep="first"
+#    )
+
+#    predictions_df.to_csv(
+#        PREDICTION_LOG,
+#        index=False
+#    )
+
+#    print(
+#        "\nDuplicate prediction fixtures removed."
+#    )
+
+
+# TEST PREDICTION TRACKING
+#saved_prediction = save_prediction(
+    #prediction
+#)
+
+#print(
+    #"\n===== SAVED PREDICTION ====="
+#)
+
+#print(
+#    saved_prediction
+#)
+
+
+# UPDATE PREDICTION WITH ACTUAL RESULT
+def update_prediction_result(
+    prediction_id,
+    actual_result
+):
+
+    # VALIDATE ACTUAL RESULT
+    valid_results = [
+        "H",
+        "D",
+        "A"
+    ]
+
+    actual_result = (
+        str(actual_result)
+        .strip()
+        .upper()
+    )
+
+    if actual_result not in valid_results:
+
+        raise ValueError(
+            "Actual result must be H, D, or A."
+        )
+
+
+    # CHECK PREDICTION LOG EXISTS
+    if not PREDICTION_LOG.exists():
+
+        raise FileNotFoundError(
+            "Prediction log does not exist."
+        )
+
+
+    # LOAD PREDICTION LOG
+    predictions_df = pd.read_csv(
+        PREDICTION_LOG
+    )
+
+
+    # FORCE TEXT COLUMNS
+    predictions_df["actual_result"] = (
+        predictions_df["actual_result"]
+        .astype("object")
+    )
+
+    predictions_df["status"] = (
+        predictions_df["status"]
+        .astype("object")
+    )
+
+
+    # FIND PREDICTION
+    match_mask = (
+        predictions_df["prediction_id"]
+        == prediction_id
+    )
+
+    if not match_mask.any():
+
+        raise ValueError(
+            "Prediction ID not found."
+        )
+
+
+    # CHECK IF ALREADY COMPLETED
+    existing_status = (
+        predictions_df.loc[
+            match_mask,
+            "status"
+        ].iloc[0]
+    )
+
+    if existing_status == "Completed":
+
+        print(
+            "\nWarning: This prediction has "
+            "already been completed."
+        )
+
+
+    # UPDATE ACTUAL RESULT
+    predictions_df.loc[
+        match_mask,
+        "actual_result"
+    ] = actual_result
+
+
+    # UPDATE STATUS
+    predictions_df.loc[
+        match_mask,
+        "status"
+    ] = "Completed"
+
+
+    # SAVE UPDATED LOG
+    predictions_df.to_csv(
+        PREDICTION_LOG,
+        index=False
+    )
+
+
+    # GET UPDATED RECORD
+    updated_record = (
+        predictions_df.loc[
+            match_mask
+        ].iloc[0]
+    )
+
+
+    # DISPLAY RESULT
+    print(
+        "\nPrediction updated successfully."
+    )
+
+    print(
+        "Prediction ID:",
+        prediction_id
+    )
+
+    print(
+        "Actual result:",
+        actual_result
+    )
+
+    print(
+        "Status: Completed"
+    )
+
+
+    return updated_record
+
+
+# TEST ACTUAL RESULT UPDATE
+#print(
+#    "\n===== TEST ACTUAL RESULT UPDATE ====="
+#)
+
+# Use the existing completed test prediction
+#updated_prediction = update_prediction_result(
+#    prediction_id="61e1b5e5-19ff-488c-b055-8c78766d7080",
+#    actual_result="H"
+#)
+
+#print("\n===== UPDATED PREDICTION =====")
+
+#print(updated_prediction)
+
+
+
+# PREDICTION EVALUATION ENGINE
+# EVALUATE COMPLETED PREDICTIONS
+def evaluate_predictions():
+
+    print("\n===== PREDICTION EVALUATION ENGINE =====")
+
+
+    # CHECK LOG EXISTS
+    if not PREDICTION_LOG.exists():
+
+        print(
+            "Prediction log does not exist yet."
+        )
+
+        return None
+
+
+    # LOAD PREDICTIONS
+    predictions_df = pd.read_csv(
+        PREDICTION_LOG
+    )
+
+
+    # COUNT PENDING / COMPLETED
+    completed_df = predictions_df[
+        predictions_df["status"] == "Completed"
+    ].copy()
+
+    pending_df = predictions_df[
+        predictions_df["status"] == "Pending"
+    ].copy()
+
+
+    print(
+        "\nTotal predictions:",
+        len(predictions_df)
+    )
+
+    print(
+        "Completed predictions:",
+        len(completed_df)
+    )
+
+    print(
+        "Pending predictions:",
+        len(pending_df)
+    )
+
+
+    # STOP IF THERE ARE NOT ENOUGH COMPLETED PREDICTIONS
+    if completed_df.empty:
+
+        print(
+            "\nNo completed predictions available "
+            "for evaluation."
+        )
+
+        return None
+
+
+    # GET ACTUAL RESULTS
+    y_actual = (
+        completed_df[
+            "actual_result"
+        ]
+        .astype(str)
+        .str.upper()
+    )
+
+
+    # GET HARD PREDICTIONS
+    y_predicted = (
+        completed_df[
+            "predicted_result"
+        ]
+        .astype(str)
+        .str.upper()
+    )
+
+
+    # GET PROBABILITIES
+    probability_columns = [
+        "away_win_probability",
+        "draw_probability",
+        "home_win_probability"
+    ]
+
+    probability_values = (
+        completed_df[
+            probability_columns
+        ]
+        .astype(float)
+        .to_numpy()
+    )
+
+    y_probabilities = (
+        probability_values / 100
+    )
+
+
+    # ACCURACY
+    evaluation_accuracy = accuracy_score(
+        y_actual,
+        y_predicted
+    )
+
+
+    # LOG LOSS
+    evaluation_log_loss = log_loss(
+        y_actual,
+        y_probabilities,
+        labels=["A", "D", "H"]
+    )
+
+
+    # BRIER SCORE
+    result_to_index = {
+        "A": 0,
+        "D": 1,
+        "H": 2
+    }
+
+    y_actual_encoded = (
+        y_actual
+        .map(result_to_index)
+        .to_numpy()
+    )
+
+
+    evaluation_brier = (
+        (
+            (
+                y_probabilities -
+                (
+                    y_actual_encoded[:, None]
+                    == range(3)
+                ).astype(float)
+            ) ** 2
+        )
+        .sum(axis=1)
+        .mean()
+    )
+
+
+    # NORMALIZED BRIER SCORE
+    normalized_brier = (
+        evaluation_brier / 3
+    )
+
+
+    # CONFUSION MATRIX
+    evaluation_cm = confusion_matrix(
+        y_actual,
+        y_predicted,
+        labels=["A", "D", "H"]
+    )
+
+
+    # DISPLAY RESULTS
+    print(
+        "\n===== COMPLETED PREDICTION PERFORMANCE ====="
+    )
+
+    print(
+        "Accuracy:",
+        round(
+            evaluation_accuracy,
+            4
+        )
+    )
+
+    print(
+        "Log Loss:",
+        round(
+            evaluation_log_loss,
+            4
+        )
+    )
+
+    print(
+        "Brier Score:",
+        round(
+            evaluation_brier,
+            4
+        )
+    )
+
+    print(
+        "Normalized Brier Score:",
+        round(
+            normalized_brier,
+            4
+        )
+    )
+
+
+    # CONFUSION MATRIX DISPLAY
+    print("\n===== CONFUSION MATRIX =====")
+
+    print( "Classes: ['A', 'D', 'H']")
+
+    print(evaluation_cm)
+
+
+    # RESULT DISTRIBUTION
+    print("\n===== ACTUAL RESULT DISTRIBUTION =====")
+
+    print(y_actual.value_counts())
+
+
+    # RETURN METRICS
+    return {
+        "completed_predictions":
+            len(completed_df),
+
+        "pending_predictions":
+            len(pending_df),
+
+        "accuracy":
+            float(evaluation_accuracy),
+
+        "log_loss":
+            float(evaluation_log_loss),
+
+        "brier_score":
+            float(evaluation_brier),
+
+        "normalized_brier_score":
+            float(normalized_brier)
+    }
+
+
+# TEST EVALUATION ENGINE
+#evaluation_results = evaluate_predictions()
+
+
+#print(
+#    "\n===== EVALUATION RESULTS ====="
+#)
+
+#print(
+#    evaluation_results
+#)
+
+
+print("\n HISTORICAL OUT-OF-SAMPLE BACKTEST")
+
+
+# HISTORICAL OUT-OF-SAMPLE BACKTEST
+# Evaluate the saved evaluation model on the held-out test period
+# without adding historical matches to the live prediction log.
+
+
+# CREATE BACKTEST DIRECTORY
+BACKTEST_DIR = Path(
+    "data/predictions"
+)
+
+BACKTEST_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# LOAD THE SAVED EVALUATION MODEL
+evaluation_model_path = (
+    "data/models/calibrated_v2_catboost_evaluation.joblib"
+)
+
+backtest_model = joblib.load(
+    evaluation_model_path
+)
+
+print(
+    "\n===== HISTORICAL OUT-OF-SAMPLE BACKTEST ====="
+)
+
+print(
+    "Evaluation model loaded successfully."
+)
+
+
+# PREPARE HELD-OUT TEST DATA
+backtest_df = (
+    test_df_v2
+    .sort_values("date")
+    .reset_index(drop=True)
+    .copy()
+)
+
+
+# CREATE TEST FEATURES
+X_backtest = backtest_df[
+    model_features_v2
+]
+
+y_backtest = backtest_df[
+    "result"
+]
+
+
+print(
+    "\nBacktest matches:",
+    len(backtest_df)
+)
+
+print(
+    "Backtest date range:",
+    backtest_df["date"].min(),
+    "to",
+    backtest_df["date"].max()
+)
+
+
+# GENERATE OUT-OF-SAMPLE PREDICTIONS
+backtest_probabilities = (
+    backtest_model.predict_proba(
+        X_backtest
+    )
+)
+
+
+backtest_classes = (
+    backtest_model.classes_
+)
+
+
+print(
+    "\nModel classes:",
+    backtest_classes
+)
+
+
+# GET HARD PREDICTIONS
+backtest_predicted_results = (
+    backtest_model.predict(
+        X_backtest
+    )
+)
+
+
+# CREATE PROBABILITY MAP
+backtest_class_index = {
+    class_name: index
+    for index, class_name in enumerate(
+        backtest_classes
+    )
+}
+
+
+# EXTRACT INDIVIDUAL PROBABILITIES
+backtest_home_probability = (
+    backtest_probabilities[
+        :,
+        backtest_class_index["H"]
+    ]
+)
+
+backtest_draw_probability = (
+    backtest_probabilities[
+        :,
+        backtest_class_index["D"]
+    ]
+)
+
+backtest_away_probability = (
+    backtest_probabilities[
+        :,
+        backtest_class_index["A"]
+    ]
+)
+
+
+# CREATE BACKTEST RESULTS DATAFRAME
+backtest_results = backtest_df[
+    [
+        "season",
+        "date",
+        "round",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+
+# ADD PREDICTION INFORMATION
+backtest_results[
+    "predicted_result"
+] = backtest_predicted_results
+
+
+backtest_results[
+    "home_win_probability"
+] = (
+    backtest_home_probability * 100
+)
+
+
+backtest_results[
+    "draw_probability"
+] = (
+    backtest_draw_probability * 100
+)
+
+
+backtest_results[
+    "away_win_probability"
+] = (
+    backtest_away_probability * 100
+)
+
+
+# CONVERT RESULT CODE TO READABLE NAME
+result_names = {
+    "H": "Home Win",
+    "D": "Draw",
+    "A": "Away Win"
+}
+
+
+backtest_results[
+    "predicted_result_name"
+] = (
+    backtest_results[
+        "predicted_result"
+    ].map(result_names)
+)
+
+
+backtest_results[
+    "correct"
+] = (
+    backtest_results[
+        "predicted_result"
+    ]
+    ==
+    backtest_results[
+        "result"
+    ]
+)
+
+
+# DISPLAY FIRST 10 BACKTEST PREDICTIONS
+print(
+    "\n===== FIRST 10 BACKTEST PREDICTIONS ====="
+)
+
+print(
+    backtest_results.head(10)
+)
+
+
+# OVERALL ACCURACY
+backtest_accuracy = accuracy_score(
+    y_backtest,
+    backtest_predicted_results
+)
+
+
+# OVERALL LOG LOSS
+backtest_log_loss = log_loss(
+    y_backtest,
+    backtest_probabilities,
+    labels=backtest_classes
+)
+
+
+# MULTICLASS BRIER SCORE
+backtest_true_encoded = (
+    y_backtest
+    .map(backtest_class_index)
+    .to_numpy()
+)
+
+
+backtest_brier_score = (
+    (
+        (
+            backtest_probabilities -
+            (
+                backtest_true_encoded[:, None]
+                ==
+                range(
+                    len(backtest_classes)
+                )
+            ).astype(float)
+        ) ** 2
+    )
+    .sum(axis=1)
+    .mean()
+)
+
+
+# NORMALIZED BRIER SCORE
+backtest_normalized_brier = (
+    backtest_brier_score /
+    len(backtest_classes)
+)
+
+
+# DISPLAY OVERALL BACKTEST METRICS
+print(
+    "\n===== OVERALL BACKTEST PERFORMANCE ====="
+)
+
+print(
+    "Accuracy:",
+    round(
+        backtest_accuracy,
+        4
+    )
+)
+
+print(
+    "Log Loss:",
+    round(
+        backtest_log_loss,
+        4
+    )
+)
+
+print(
+    "Brier Score:",
+    round(
+        backtest_brier_score,
+        4
+    )
+)
+
+print(
+    "Normalized Brier Score:",
+    round(
+        backtest_normalized_brier,
+        4
+    )
+)
+
+
+# CONFUSION MATRIX
+backtest_cm = confusion_matrix(
+    y_backtest,
+    backtest_predicted_results,
+    labels=["A", "D", "H"]
+)
+
+
+print(
+    "\n===== BACKTEST CONFUSION MATRIX ====="
+)
+
+print(
+    "Classes: ['A', 'D', 'H']"
+)
+
+print(
+    backtest_cm
+)
+
+
+# CLASSIFICATION REPORT
+print(
+    "\n===== BACKTEST CLASSIFICATION REPORT ====="
+)
+
+print(
+    classification_report(
+    y_backtest,
+    backtest_predicted_results,
+    labels=["A", "D", "H"],
+    zero_division=0
+)
+)
+
+
+# RESULT DISTRIBUTION
+print(
+    "\n===== BACKTEST ACTUAL RESULT DISTRIBUTION ====="
+)
+
+print(
+    y_backtest.value_counts()
+)
+
+
+# PREDICTED RESULT DISTRIBUTION
+print(
+    "\n===== BACKTEST PREDICTED RESULT DISTRIBUTION ====="
+)
+
+print(
+    pd.Series(
+        backtest_predicted_results
+    ).value_counts()
+)
+
+
+# SEASON-BY-SEASON BACKTEST
+print(
+    "\n===== BACKTEST BY SEASON ====="
+)
+
+
+backtest_season_metrics = []
+
+
+for season in sorted(
+    backtest_results["season"].unique()
+):
+
+    season_data = backtest_results[
+        backtest_results["season"] == season
+    ].copy()
+
+
+    season_actual = (
+        season_data["result"]
+    )
+
+
+    season_predicted = (
+        season_data["predicted_result"]
+    )
+
+
+    season_probabilities = (
+        season_data[
+            [
+                "away_win_probability",
+                "draw_probability",
+                "home_win_probability"
+            ]
+        ].to_numpy()
+        / 100
+    )
+
+
+    season_accuracy = (
+        accuracy_score(
+            season_actual,
+            season_predicted
+        )
+    )
+
+
+    season_log_loss = (
+        log_loss(
+            season_actual,
+            season_probabilities,
+            labels=["A", "D", "H"]
+        )
+    )
+
+
+    season_encoded = (
+        season_actual
+        .map({
+            "A": 0,
+            "D": 1,
+            "H": 2
+        })
+        .to_numpy()
+    )
+
+
+    season_brier = (
+        (
+            (
+                season_probabilities -
+                (
+                    season_encoded[:, None]
+                    ==
+                    range(3)
+                ).astype(float)
+            ) ** 2
+        )
+        .sum(axis=1)
+        .mean()
+    )
+
+
+    backtest_season_metrics.append({
+
+        "season":
+            season,
+
+        "matches":
+            len(season_data),
+
+        "accuracy":
+            season_accuracy,
+
+        "log_loss":
+            season_log_loss,
+
+        "brier_score":
+            season_brier
+    })
+
+
+backtest_season_metrics_df = (
+    pd.DataFrame(
+        backtest_season_metrics
+    )
+)
+
+
+print(
+    backtest_season_metrics_df.round(4)
+)
+
+
+# CHECK PREDICTION PROBABILITY SUMS
+probability_sum = (
+    backtest_results[
+        [
+            "home_win_probability",
+            "draw_probability",
+            "away_win_probability"
+        ]
+    ].sum(axis=1)
+)
+
+
+print(
+    "\n===== PROBABILITY VALIDATION ====="
+)
+
+print(
+    "Minimum probability sum:",
+    round(
+        probability_sum.min(),
+        6
+    )
+)
+
+print(
+    "Maximum probability sum:",
+    round(
+        probability_sum.max(),
+        6
+    )
+)
+
+
+if np.allclose(
+    probability_sum,
+    100,
+    atol=0.01
+):
+
+    print(
+        "Probability sum check: PASS"
+    )
+
+else:
+
+    print(
+        "Probability sum check: FAIL"
+    )
+
+
+# CHECK FOR MISSING BACKTEST VALUES
+print(
+    "\n===== BACKTEST MISSING VALUE CHECK ====="
+)
+
+print(
+    backtest_results.isnull().sum()
+)
+
+
+# SAVE BACKTEST MATCH RESULTS
+backtest_output = (
+    BACKTEST_DIR /
+    "champions_league_backtest_predictions_2023_24_to_2025_26.csv"
+)
+
+
+backtest_results.to_csv(
+    backtest_output,
+    index=False
+)
+
+
+print(
+    "\nBacktest predictions saved successfully."
+)
+
+print(
+    "Saved to:",
+    backtest_output
+)
+
+
+# SAVE BACKTEST SUMMARY
+backtest_summary = {
+
+    "model":
+        "Calibrated V2 CatBoost",
+
+    "model_artifact":
+        evaluation_model_path,
+
+    "feature_version":
+        "V2",
+
+    "matches":
+        len(backtest_results),
+
+    "test_period": {
+        "start":
+            str(
+                backtest_results[
+                    "date"
+                ].min()
+            ),
+
+        "end":
+            str(
+                backtest_results[
+                    "date"
+                ].max()
+            )
+    },
+
+    "accuracy":
+        float(
+            backtest_accuracy
+        ),
+
+    "log_loss":
+        float(
+            backtest_log_loss
+        ),
+
+    "brier_score":
+        float(
+            backtest_brier_score
+        ),
+
+    "normalized_brier_score":
+        float(
+            backtest_normalized_brier
+        )
+}
+
+
+backtest_summary_output = (
+    BACKTEST_DIR /
+    "champions_league_backtest_summary.json"
+)
+
+
+with open(
+    backtest_summary_output,
+    "w",
+    encoding="utf-8"
+) as file:
+
+    json.dump(
+        backtest_summary,
+        file,
+        indent=4
+    )
+
+
+print(
+    "\nBacktest summary saved successfully."
+)
+
+print(
+    "Saved to:",
+    backtest_summary_output
+)
+
+
+print(
+    "\n===== HISTORICAL BACKTEST COMPLETE ====="
+)
+
+
+
+
+
+# ERROR ANALYSIS
+print(f"\n ERROR ANALYSIS")
+
+
+# BASIC ERROR COUNTS
+total_predictions = len(
+    backtest_results
+)
+
+correct_predictions = (
+    backtest_results["correct"]
+    .sum()
+)
+
+incorrect_predictions = (
+    total_predictions
+    - correct_predictions
+)
+
+print(
+    "\n===== BASIC ERROR SUMMARY ====="
+)
+
+print(
+    "Total predictions:",
+    total_predictions
+)
+
+print(
+    "Correct predictions:",
+    correct_predictions
+)
+
+print(
+    "Incorrect predictions:",
+    incorrect_predictions
+)
+
+print(
+    "Accuracy:",
+    round(
+        correct_predictions / total_predictions,
+        4
+    )
+)
+
+
+# ACTUAL VS PREDICTED RESULT
+print(
+    "\n===== ACTUAL VS PREDICTED ====="
+)
+
+actual_vs_predicted = pd.crosstab(
+    backtest_results["result"],
+    backtest_results["predicted_result"],
+    rownames=["Actual"],
+    colnames=["Predicted"],
+    dropna=False
+)
+
+print(
+    actual_vs_predicted
+)
+
+
+# DRAW ANALYSIS
+actual_draws = (
+    backtest_results["result"] == "D"
+).sum()
+
+predicted_draws = (
+    backtest_results["predicted_result"] == "D"
+).sum()
+
+correct_draws = (
+    (
+        backtest_results["result"] == "D"
+    )
+    &
+    (
+        backtest_results["predicted_result"] == "D"
+    )
+).sum()
+
+
+print(
+    "\n===== DRAW ANALYSIS ====="
+)
+
+print(
+    "Actual draws:",
+    actual_draws
+)
+
+print(
+    "Predicted draws:",
+    predicted_draws
+)
+
+print(
+    "Correct draw predictions:",
+    correct_draws
+)
+
+
+if actual_draws > 0:
+
+    draw_recall = (
+        correct_draws
+        / actual_draws
+    )
+
+else:
+
+    draw_recall = 0
+
+
+print(
+    "Draw recall:",
+    round(
+        draw_recall,
+        4
+    )
+)
+
+
+# PREDICTION CONFIDENCE
+probability_columns = [
+    "home_win_probability",
+    "draw_probability",
+    "away_win_probability"
+]
+
+
+backtest_results["prediction_confidence"] = (
+    backtest_results[
+        probability_columns
+    ].max(axis=1)
+)
+
+
+backtest_results["prediction_margin"] = (
+    backtest_results[
+        probability_columns
+    ].apply(
+        lambda row:
+            row.nlargest(2).iloc[0]
+            -
+            row.nlargest(2).iloc[1],
+        axis=1
+    )
+)
+
+
+# MOST CONFIDENT WRONG PREDICTIONS
+most_confident_wrong = (
+    backtest_results[
+        backtest_results["correct"] == False
+    ]
+    .sort_values(
+        "prediction_confidence",
+        ascending=False
+    )
+)
+
+
+print("\n===== MOST CONFIDENT WRONG PREDICTIONS =====")
+
+most_confident_wrong_display = (
+    most_confident_wrong[
+        [
+            "date",
+            "season",
+            "round",
+            "home_team",
+            "away_team",
+            "home_win_probability",
+            "draw_probability",
+            "away_win_probability",
+            "predicted_result",
+            "result",
+            "prediction_confidence",
+            "prediction_margin"
+        ]
+    ]
+    .head(20)
+)
+
+print(
+    most_confident_wrong_display
+)
+
+
+# CONFIDENCE BUCKETS
+backtest_results["confidence_bucket"] = pd.cut(
+    backtest_results["prediction_confidence"],
+    bins=[
+        0,
+        40,
+        50,
+        60,
+        70,
+        80,
+        100.01
+    ],
+    labels=[
+        "<40%",
+        "40-50%",
+        "50-60%",
+        "60-70%",
+        "70-80%",
+        "80%+"
+    ],
+    right=False
+)
+
+
+confidence_analysis = (
+    backtest_results
+    .groupby(
+        "confidence_bucket",
+        observed=False
+    )
+    .agg(
+        matches=("correct", "count"),
+        correct=("correct", "sum"),
+        accuracy=("correct", "mean")
+    )
+    .reset_index()
+)
+
+
+print(
+    "\n===== CONFIDENCE ANALYSIS ====="
+)
+
+print(
+    confidence_analysis.round(4)
+)
+
+
+# DRAW PROBABILITY ANALYSIS
+backtest_results["draw_probability_bucket"] = pd.cut(
+    backtest_results["draw_probability"],
+    bins=[
+        0,
+        15,
+        20,
+        25,
+        30,
+        35,
+        100.01
+    ],
+    labels=[
+        "<15%",
+        "15-20%",
+        "20-25%",
+        "25-30%",
+        "30-35%",
+        "35%+"
+    ],
+    right=False
+)
+
+
+draw_probability_analysis = (
+    backtest_results
+    .groupby(
+        "draw_probability_bucket",
+        observed=False
+    )
+    .agg(
+        matches=("result", "count"),
+        actual_draws=(
+            "result",
+            lambda x: (x == "D").sum()
+        ),
+        average_draw_probability=(
+            "draw_probability",
+            "mean"
+        )
+    )
+    .reset_index()
+)
+
+
+draw_probability_analysis[
+    "actual_draw_rate"
+] = (
+    draw_probability_analysis[
+        "actual_draws"
+    ]
+    /
+    draw_probability_analysis[
+        "matches"
+    ]
+)
+
+
+print(
+    "\n===== DRAW PROBABILITY ANALYSIS ====="
+)
+
+print(
+    draw_probability_analysis.round(4)
+)
+
+
+# ERROR TYPE
+def classify_error(row):
+
+    if row["correct"]:
+
+        return "Correct"
+
+    if (
+        row["result"] == "D"
+        and
+        row["predicted_result"] != "D"
+    ):
+
+        return "Missed Draw"
+
+    if (
+        row["predicted_result"] == "D"
+        and
+        row["result"] != "D"
+    ):
+
+        return "False Draw"
+
+    if (
+        row["result"] == "H"
+        and
+        row["predicted_result"] == "A"
+    ):
+
+        return "Home vs Away"
+
+    if (
+        row["result"] == "A"
+        and
+        row["predicted_result"] == "H"
+    ):
+
+        return "Away vs Home"
+
+    return "Other Error"
+
+
+backtest_results["error_type"] = (
+    backtest_results.apply(
+        classify_error,
+        axis=1
+    )
+)
+
+
+print(
+    "\n===== ERROR TYPE DISTRIBUTION ====="
+)
+
+print(
+    backtest_results[
+        "error_type"
+    ].value_counts()
+)
+
+
+# ERROR ANALYSIS BY SEASON
+season_error_analysis = (
+    backtest_results
+    .groupby("season")
+    .agg(
+        matches=("correct", "count"),
+        correct=("correct", "sum"),
+        accuracy=("correct", "mean"),
+        missed_draws=(
+            "error_type",
+            lambda x: (x == "Missed Draw").sum()
+        ),
+        home_vs_away_errors=(
+            "error_type",
+            lambda x: (x == "Home vs Away").sum()
+        ),
+        away_vs_home_errors=(
+            "error_type",
+            lambda x: (x == "Away vs Home").sum()
+        )
+    )
+    .reset_index()
+)
+
+
+print(
+    "\n===== ERROR ANALYSIS BY SEASON ====="
+)
+
+print(
+    season_error_analysis.round(4)
+)
+
+
+# ERROR ANALYSIS BY ROUND
+round_error_analysis = (
+    backtest_results
+    .groupby("round")
+    .agg(
+        matches=("correct", "count"),
+        correct=("correct", "sum"),
+        accuracy=("correct", "mean"),
+        missed_draws=(
+            "error_type",
+            lambda x: (x == "Missed Draw").sum()
+        )
+    )
+    .reset_index()
+)
+
+
+print("\n===== ERROR ANALYSIS BY ROUND =====")
+
+print(round_error_analysis.round(4))
+
+
+# SAVE ERROR ANALYSIS RESULTS
+BASE_DIR = Path(__file__).resolve().parent
+
+ERROR_ANALYSIS_DIR = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+)
+
+
+error_analysis_output = (
+    ERROR_ANALYSIS_DIR
+    / "champions_league_error_analysis.csv"
+)
+
+
+backtest_results.to_csv(
+    error_analysis_output,
+    index=False
+)
+
+
+print(
+    "\nError analysis predictions saved to:"
+)
+
+print(
+    error_analysis_output
+)
+
+
+# SAVE SUMMARY
+error_summary = {
+
+    "total_predictions":
+        int(total_predictions),
+
+    "correct_predictions":
+        int(correct_predictions),
+
+    "incorrect_predictions":
+        int(incorrect_predictions),
+
+    "accuracy":
+        float(
+            correct_predictions
+            /
+            total_predictions
+        ),
+
+    "actual_draws":
+        int(actual_draws),
+
+    "predicted_draws":
+        int(predicted_draws),
+
+    "correct_draws":
+        int(correct_draws),
+
+    "draw_recall":
+        float(draw_recall),
+
+    "error_distribution":
+        {
+            str(key): int(value)
+            for key, value
+            in backtest_results[
+                "error_type"
+            ]
+            .value_counts()
+            .items()
+        }
+
+}
+
+
+error_summary_output = (
+    ERROR_ANALYSIS_DIR
+    / "champions_league_error_analysis_summary.json"
+)
+
+
+with open(
+    error_summary_output,
+    "w",
+    encoding="utf-8"
+) as file:
+
+    json.dump(
+        error_summary,
+        file,
+        indent=4
+    )
+
+
+print("\nError analysis summary saved to:")
+
+print(error_summary_output)
+
+print("ERROR ANALYSIS COMPLETE")
+
+
+
+
+print("\n ERROR ANALYSIS COMPLETE")
+
+# CHECK BACKTEST RESULT COLUMNS
+print("\n===== BACKTEST RESULT COLUMNS =====")
+print(backtest_results.columns.tolist())
+
+
+# MISSED DRAW ANALYSIS
+print("\n" + "=" * 60)
+print("MISSED DRAW ANALYSIS")
+print("=" * 60)
+
+# 1. Get all actual draws that were predicted incorrectly
+missed_draws = backtest_results[
+    (backtest_results["result"] == "D") &
+    (backtest_results["predicted_result"] != "D")
+].copy()
+
+print("\n===== MISSED DRAW SUMMARY =====")
+print(f"Actual draws missed: {len(missed_draws)}")
+
+# 2. What did the model predict instead?
+print("\n===== WHAT DID THE MODEL PREDICT? =====")
+
+missed_prediction_counts = (
+    missed_draws["predicted_result"]
+    .value_counts()
+    .rename_axis("predicted_result")
+    .reset_index(name="matches")
+)
+
+print(missed_prediction_counts)
+
+# 3. Probability statistics for the missed draws
+print("\n===== MISSED DRAW PROBABILITY STATISTICS =====")
+
+draw_probability_stats = pd.DataFrame({
+    "statistic": [
+        "Minimum",
+        "25th Percentile",
+        "Median",
+        "Mean",
+        "75th Percentile",
+        "Maximum"
+    ],
+    "draw_probability": [
+        missed_draws["draw_probability"].min(),
+        missed_draws["draw_probability"].quantile(0.25),
+        missed_draws["draw_probability"].median(),
+        missed_draws["draw_probability"].mean(),
+        missed_draws["draw_probability"].quantile(0.75),
+        missed_draws["draw_probability"].max()
+    ]
+})
+
+draw_probability_stats["draw_probability"] = (
+    draw_probability_stats["draw_probability"].round(4)
+)
+
+print(draw_probability_stats)
+
+# 4. Draw probability buckets
+print("\n===== MISSED DRAWS BY DRAW PROBABILITY =====")
+
+missed_draws["draw_probability_bucket"] = pd.cut(
+    missed_draws["draw_probability"],
+    bins=[0, 15, 20, 25, 30, 35, 100.01],
+    labels=[
+        "<15%",
+        "15-20%",
+        "20-25%",
+        "25-30%",
+        "30-35%",
+        "35%+"
+    ],
+    right=False
+)
+
+missed_draw_probability = (
+    missed_draws["draw_probability_bucket"]
+    .value_counts()
+    .sort_index()
+    .rename_axis("draw_probability_bucket")
+    .reset_index(name="missed_draws")
+)
+
+print(missed_draw_probability)
+
+# 5. Confidence of missed draws
+print("\n===== MISSED DRAW CONFIDENCE =====")
+
+missed_draws["confidence_bucket"] = pd.cut(
+    missed_draws["prediction_confidence"],
+    bins=[0, 40, 50, 60, 70, 80, 100.01],
+    labels=[
+        "<40%",
+        "40-50%",
+        "50-60%",
+        "60-70%",
+        "70-80%",
+        "80%+"
+    ],
+    right=False
+)
+
+missed_confidence = (
+    missed_draws["confidence_bucket"]
+    .value_counts()
+    .sort_index()
+    .rename_axis("confidence_bucket")
+    .reset_index(name="missed_draws")
+)
+
+print(missed_confidence)
+
+# 6. Missed draws by season
+print("\n===== MISSED DRAWS BY SEASON =====")
+
+missed_draws_by_season = (
+    missed_draws
+    .groupby("season", observed=False)
+    .size()
+    .reset_index(name="missed_draws")
+)
+
+print(missed_draws_by_season)
+
+# 7. Missed draws by round
+print("\n===== MISSED DRAWS BY ROUND =====")
+
+missed_draws_by_round = (
+    missed_draws
+    .groupby("round", observed=False)
+    .size()
+    .reset_index(name="missed_draws")
+    .sort_values("missed_draws", ascending=False)
+)
+
+print(missed_draws_by_round)
+
+# 8. Display every missed draw
+print("\n===== ALL 75 MISSED DRAWS =====")
+
+missed_draw_display_columns = [
+    "date",
+    "season",
+    "round",
+    "home_team",
+    "away_team",
+    "home_win_probability",
+    "draw_probability",
+    "away_win_probability",
+    "predicted_result",
+    "prediction_confidence",
+    "prediction_margin"
+]
+
+available_columns = [
+    col for col in missed_draw_display_columns
+    if col in missed_draws.columns
+]
+
+missed_draw_display = missed_draws[available_columns].copy()
+
+for col in [
+    "home_win_probability",
+    "draw_probability",
+    "away_win_probability",
+    "prediction_confidence",
+    "prediction_margin"
+]:
+    if col in missed_draw_display.columns:
+        missed_draw_display[col] = (
+            missed_draw_display[col].round(2)
+        )
+
+print(missed_draw_display.to_string(index=False))
+
+
+# 9. Save missed-draw analysis
+MISSED_DRAW_ANALYSIS_FILE = (
+    ERROR_ANALYSIS_DIR /
+    "champions_league_missed_draw_analysis.csv"
+)
+
+missed_draws.to_csv(
+    MISSED_DRAW_ANALYSIS_FILE,
+    index=False
+)
+
+print(
+    f"\nMissed draw analysis saved to:\n"
+    f"{MISSED_DRAW_ANALYSIS_FILE}"
+)
+
+print("\nMISSED DRAW ANALYSIS COMPLETE")
+
+
+
+
+
+# V3.5 DRAW DIAGNOSTIC ANALYSIS
+print("\n" + "=" * 60)
+print("V3.5 DRAW DIAGNOSTIC ANALYSIS")
+print("=" * 60)
+
+draw_diagnostic = backtest_results.copy()
+
+# 1. ACTUAL DRAW RATE BY SEASON
+print("\n===== ACTUAL DRAW RATE BY SEASON =====")
+
+season_draw_analysis = (
+    draw_diagnostic
+    .groupby("season")
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+season_draw_analysis["draw_rate"] = (
+    season_draw_analysis["actual_draws"] /
+    season_draw_analysis["matches"] * 100
+).round(2)
+
+season_draw_analysis["missed_draws"] = (
+    draw_diagnostic[draw_diagnostic["result"] == "D"]
+    .groupby("season")
+    .size()
+    .reindex(season_draw_analysis["season"], fill_value=0)
+    .values
+)
+
+season_draw_analysis["draw_recall"] = (
+    season_draw_analysis["actual_draws"] -
+    season_draw_analysis["missed_draws"]
+)
+
+season_draw_analysis["draw_recall"] = (
+    season_draw_analysis["draw_recall"] /
+    season_draw_analysis["actual_draws"] * 100
+).round(2)
+
+print(season_draw_analysis)
+
+
+# 2. ACTUAL DRAW RATE BY ROUND
+print("\n===== ACTUAL DRAW RATE BY ROUND =====")
+
+round_draw_analysis = (
+    draw_diagnostic
+    .groupby("round")
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+round_draw_analysis["draw_rate"] = (
+    round_draw_analysis["actual_draws"] /
+    round_draw_analysis["matches"] * 100
+).round(2)
+
+print(
+    round_draw_analysis
+    .sort_values("draw_rate", ascending=False)
+    .to_string(index=False)
+)
+
+
+# 3. DRAW RATE BY PREDICTED DRAW PROBABILITY
+print("\n===== ACTUAL DRAW RATE BY PREDICTED DRAW PROBABILITY =====")
+
+draw_diagnostic["draw_probability_bucket"] = pd.cut(
+    draw_diagnostic["draw_probability"],
+    bins=[0, 15, 20, 25, 30, 35, 40, 100.01],
+    labels=[
+        "<15%",
+        "15-20%",
+        "20-25%",
+        "25-30%",
+        "30-35%",
+        "35-40%",
+        "40%+"
+    ],
+    right=False
+)
+
+draw_probability_analysis = (
+    draw_diagnostic
+    .groupby("draw_probability_bucket", observed=False)
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+draw_probability_analysis["actual_draw_rate"] = (
+    draw_probability_analysis["actual_draws"] /
+    draw_probability_analysis["matches"] * 100
+).round(2)
+
+print(draw_probability_analysis)
+
+
+# 4. DRAW RATE BY HOME/AWAY PROBABILITY GAP
+print("\n===== DRAW RATE BY HOME/AWAY PROBABILITY GAP =====")
+
+draw_diagnostic["home_away_probability_gap"] = (
+    draw_diagnostic["home_win_probability"] -
+    draw_diagnostic["away_win_probability"]
+).abs()
+
+draw_diagnostic["home_away_gap_bucket"] = pd.cut(
+    draw_diagnostic["home_away_probability_gap"],
+    bins=[0, 5, 10, 15, 20, 30, 40, 50, 100.01],
+    labels=[
+        "0-5%",
+        "5-10%",
+        "10-15%",
+        "15-20%",
+        "20-30%",
+        "30-40%",
+        "40-50%",
+        "50%+"
+    ],
+    right=False
+)
+
+home_away_gap_analysis = (
+    draw_diagnostic
+    .groupby("home_away_gap_bucket", observed=False)
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+home_away_gap_analysis["actual_draw_rate"] = (
+    home_away_gap_analysis["actual_draws"] /
+    home_away_gap_analysis["matches"] * 100
+).round(2)
+
+print(home_away_gap_analysis)
+
+
+# 5. DRAW RATE BY PREDICTION MARGIN
+print("\n===== DRAW RATE BY PREDICTION MARGIN =====")
+
+draw_diagnostic["prediction_margin_bucket"] = pd.cut(
+    draw_diagnostic["prediction_margin"],
+    bins=[0, 5, 10, 15, 20, 30, 40, 50, 100.01],
+    labels=[
+        "0-5%",
+        "5-10%",
+        "10-15%",
+        "15-20%",
+        "20-30%",
+        "30-40%",
+        "40-50%",
+        "50%+"
+    ],
+    right=False
+)
+
+margin_analysis = (
+    draw_diagnostic
+    .groupby("prediction_margin_bucket", observed=False)
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+margin_analysis["actual_draw_rate"] = (
+    margin_analysis["actual_draws"] /
+    margin_analysis["matches"] * 100
+).round(2)
+
+print(margin_analysis)
+
+
+# 6. BALANCED MATCHES
+print("\n===== BALANCED MATCH ANALYSIS =====")
+
+balanced_matches = draw_diagnostic[
+    draw_diagnostic["home_away_probability_gap"] <= 10
+].copy()
+
+balanced_total = len(balanced_matches)
+balanced_draws = (balanced_matches["result"] == "D").sum()
+
+if balanced_total > 0:
+    balanced_draw_rate = balanced_draws / balanced_total * 100
+else:
+    balanced_draw_rate = 0
+
+print(f"Balanced matches (Home/Away gap <= 10%): {balanced_total}")
+print(f"Actual draws among balanced matches: {balanced_draws}")
+print(f"Draw rate: {balanced_draw_rate:.2f}%")
+
+
+# 7. MISSED DRAWS VS CORRECT NON-DRAW PREDICTIONS
+print("\n===== MISSED DRAWS VS CORRECT NON-DRAW PREDICTIONS =====")
+
+missed_draws = draw_diagnostic[
+    (draw_diagnostic["result"] == "D") &
+    (draw_diagnostic["predicted_result"] != "D")
+].copy()
+
+correct_non_draws = draw_diagnostic[
+    (draw_diagnostic["result"] != "D") &
+    (draw_diagnostic["predicted_result"] == draw_diagnostic["result"])
+].copy()
+
+print(f"Missed draws: {len(missed_draws)}")
+print(f"Correct non-draw predictions: {len(correct_non_draws)}")
+
+
+# 8. COMPARE EXISTING MODEL FEATURES
+v2_features = [
+    "home_goal_scoring_edge",
+    "home_defensive_edge",
+    "home_attack_vs_away_defense",
+    "away_attack_vs_home_defense",
+    "win_rate_edge",
+    "venue_win_rate_edge",
+    "recent_points_edge",
+    "experience_edge",
+    "days_since_match_edge"
+]
+
+available_v2_features = [
+    feature for feature in v2_features
+    if feature in draw_diagnostic.columns
+]
+
+print("\n===== FEATURE COMPARISON =====")
+
+if available_v2_features:
+
+    missed_draw_feature_means = (
+        missed_draws[available_v2_features]
+        .mean()
+        .rename("missed_draw_mean")
+    )
+
+    correct_non_draw_feature_means = (
+        correct_non_draws[available_v2_features]
+        .mean()
+        .rename("correct_non_draw_mean")
+    )
+
+    feature_comparison = pd.concat(
+        [
+            missed_draw_feature_means,
+            correct_non_draw_feature_means
+        ],
+        axis=1
+    )
+
+    feature_comparison["difference"] = (
+        feature_comparison["missed_draw_mean"] -
+        feature_comparison["correct_non_draw_mean"]
+    )
+
+    feature_comparison = feature_comparison.round(4)
+
+    print(feature_comparison)
+
+else:
+    print("No V2 feature columns found in backtest_results.")
+
+
+# 9. LEAGUE PHASE VS GROUP STAGE
+print("\n===== LEAGUE PHASE VS GROUP STAGE =====")
+
+phase_comparison = draw_diagnostic[
+    draw_diagnostic["round"].isin([
+        "League phase",
+        "Group stage"
+    ])
+].copy()
+
+phase_analysis = (
+    phase_comparison
+    .groupby("round")
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("result", lambda x: (x == "D").sum())
+    )
+    .reset_index()
+)
+
+phase_analysis["draw_rate"] = (
+    phase_analysis["actual_draws"] /
+    phase_analysis["matches"] * 100
+).round(2)
+
+print(phase_analysis)
+
+
+# 10. HIGH DRAW-PROBABILITY MATCHES
+print("\n===== HIGHEST DRAW PROBABILITY MATCHES =====")
+
+highest_draw_probability = (
+    draw_diagnostic
+    .sort_values("draw_probability", ascending=False)
+    [
+        [
+            "date",
+            "season",
+            "round",
+            "home_team",
+            "away_team",
+            "home_win_probability",
+            "draw_probability",
+            "away_win_probability",
+            "result",
+            "predicted_result"
+        ]
+    ]
+    .head(20)
+)
+
+print(highest_draw_probability.to_string(index=False))
+
+
+# 11. SAVE V3.5 DIAGNOSTIC RESULTS
+DRAW_DIAGNOSTIC_FILE = (
+    ERROR_ANALYSIS_DIR /
+    "champions_league_v3_5_draw_diagnostics.csv"
+)
+
+draw_diagnostic.to_csv(
+    DRAW_DIAGNOSTIC_FILE,
+    index=False
+)
+
+print(
+    f"\nV3.5 diagnostic data saved to:\n"
+    f"{DRAW_DIAGNOSTIC_FILE}"
+)
+
+print("\nV3.5 DRAW DIAGNOSTIC ANALYSIS COMPLETE")
+
+
+
+
+
+# V3.6 FEATURE-LEVEL DRAW ANALYSIS
+print("\n" + "=" * 60)
+print("V3.6 FEATURE-LEVEL DRAW ANALYSIS")
+print("=" * 60)
+
+# 1. LOAD V2 FEATURE DATA
+FEATURES_FILE = (
+    BASE_DIR /
+    "data" /
+    "processed" /
+    "champions_league_features_v2.csv"
+)
+
+v2_features_df = pd.read_csv(FEATURES_FILE)
+
+print("\n===== V2 FEATURE DATA =====")
+print(f"Rows: {len(v2_features_df)}")
+print(f"Columns: {len(v2_features_df.columns)}")
+
+
+# 2. CREATE MATCH KEY
+def create_match_key(df):
+    return (
+        df["date"].astype(str) + "|" +
+        df["home_team"].astype(str) + "|" +
+        df["away_team"].astype(str)
+    )
+
+
+draw_diagnostic["match_key"] = create_match_key(draw_diagnostic)
+v2_features_df["match_key"] = create_match_key(v2_features_df)
+
+
+# 3. V2 FEATURES WE WANT TO STUDY
+v2_feature_columns = [
+    "home_goal_scoring_edge",
+    "home_defensive_edge",
+    "home_attack_vs_away_defense",
+    "away_attack_vs_home_defense",
+    "win_rate_edge",
+    "venue_win_rate_edge",
+    "recent_points_edge",
+    "experience_edge",
+    "days_since_match_edge"
+]
+
+available_features = [
+    feature
+    for feature in v2_feature_columns
+    if feature in v2_features_df.columns
+]
+
+print("\n===== AVAILABLE V2 FEATURES =====")
+print(available_features)
+
+
+# 4. MERGE BACKTEST RESULTS WITH V2 FEATURES
+feature_analysis = draw_diagnostic.merge(
+    v2_features_df[
+        ["match_key"] + available_features
+    ],
+    on="match_key",
+    how="left",
+    suffixes=("", "_feature")
+)
+
+print("\n===== FEATURE MERGE CHECK =====")
+
+print(
+    f"Backtest matches: {len(draw_diagnostic)}"
+)
+
+print(
+    f"Matches after merge: {len(feature_analysis)}"
+)
+
+missing_feature_rows = (
+    feature_analysis[available_features]
+    .isna()
+    .all(axis=1)
+    .sum()
+)
+
+print(
+    f"Matches with no V2 feature match: "
+    f"{missing_feature_rows}"
+)
+
+
+# 5. ACTUAL OUTCOME GROUPS
+actual_draws = feature_analysis[
+    feature_analysis["result"] == "D"
+].copy()
+
+actual_home_wins = feature_analysis[
+    feature_analysis["result"] == "H"
+].copy()
+
+actual_away_wins = feature_analysis[
+    feature_analysis["result"] == "A"
+].copy()
+
+print("\n===== ACTUAL OUTCOME COUNTS =====")
+
+print(
+    f"Actual Draws: {len(actual_draws)}"
+)
+
+print(
+    f"Actual Home Wins: {len(actual_home_wins)}"
+)
+
+print(
+    f"Actual Away Wins: {len(actual_away_wins)}"
+)
+
+
+# 6. FEATURE MEANS BY ACTUAL RESULT
+print("\n===== FEATURE MEANS BY ACTUAL RESULT =====")
+
+feature_means = pd.DataFrame({
+    "Draw": actual_draws[available_features].mean(),
+    "Home": actual_home_wins[available_features].mean(),
+    "Away": actual_away_wins[available_features].mean()
+})
+
+feature_means = feature_means.round(4)
+
+print(feature_means)
+
+
+# 7. FEATURE MEDIANS BY ACTUAL RESULT
+print("\n===== FEATURE MEDIANS BY ACTUAL RESULT =====")
+
+feature_medians = pd.DataFrame({
+    "Draw": actual_draws[available_features].median(),
+    "Home": actual_home_wins[available_features].median(),
+    "Away": actual_away_wins[available_features].median()
+})
+
+feature_medians = feature_medians.round(4)
+
+print(feature_medians)
+
+
+# 8. DRAW VS NON-DRAW COMPARISON
+print("\n===== DRAW VS NON-DRAW FEATURE COMPARISON =====")
+
+non_draws = feature_analysis[
+    feature_analysis["result"] != "D"
+].copy()
+
+draw_vs_non_draw = pd.DataFrame({
+    "draw_mean": actual_draws[available_features].mean(),
+    "non_draw_mean": non_draws[available_features].mean()
+})
+
+draw_vs_non_draw["difference"] = (
+    draw_vs_non_draw["draw_mean"] -
+    draw_vs_non_draw["non_draw_mean"]
+)
+
+draw_vs_non_draw["absolute_difference"] = (
+    draw_vs_non_draw["difference"].abs()
+)
+
+draw_vs_non_draw = (
+    draw_vs_non_draw
+    .sort_values(
+        "absolute_difference",
+        ascending=False
+    )
+    .round(4)
+)
+
+print(draw_vs_non_draw)
+
+
+# 9. FEATURE SPREAD
+print("\n===== DRAW FEATURE SPREAD =====")
+
+draw_feature_spread = pd.DataFrame({
+    "mean": actual_draws[available_features].mean(),
+    "median": actual_draws[available_features].median(),
+    "std": actual_draws[available_features].std(),
+    "minimum": actual_draws[available_features].min(),
+    "maximum": actual_draws[available_features].max()
+})
+
+draw_feature_spread = draw_feature_spread.round(4)
+
+print(draw_feature_spread)
+
+
+# 10. MISSED DRAWS FEATURE PROFILE
+print("\n===== MISSED DRAW FEATURE PROFILE =====")
+
+missed_draw_feature_data = feature_analysis[
+    (feature_analysis["result"] == "D") &
+    (feature_analysis["predicted_result"] != "D")
+].copy()
+
+missed_draw_feature_profile = pd.DataFrame({
+    "missed_draw_mean": (
+        missed_draw_feature_data[available_features].mean()
+    ),
+    "all_draw_mean": (
+        actual_draws[available_features].mean()
+    ),
+    "non_draw_mean": (
+        non_draws[available_features].mean()
+    )
+})
+
+missed_draw_feature_profile["missed_vs_all_draws"] = (
+    missed_draw_feature_profile["missed_draw_mean"] -
+    missed_draw_feature_profile["all_draw_mean"]
+)
+
+missed_draw_feature_profile["missed_vs_non_draw"] = (
+    missed_draw_feature_profile["missed_draw_mean"] -
+    missed_draw_feature_profile["non_draw_mean"]
+)
+
+missed_draw_feature_profile = (
+    missed_draw_feature_profile.round(4)
+)
+
+print(missed_draw_feature_profile)
+
+
+# 11. FEATURE RANGE FOR MISSED DRAWS
+print("\n===== MISSED DRAW FEATURE RANGES =====")
+
+missed_draw_feature_ranges = pd.DataFrame({
+    "minimum": (
+        missed_draw_feature_data[available_features].min()
+    ),
+    "25th_percentile": (
+        missed_draw_feature_data[available_features]
+        .quantile(0.25)
+    ),
+    "median": (
+        missed_draw_feature_data[available_features]
+        .median()
+    ),
+    "75th_percentile": (
+        missed_draw_feature_data[available_features]
+        .quantile(0.75)
+    ),
+    "maximum": (
+        missed_draw_feature_data[available_features].max()
+    )
+})
+
+missed_draw_feature_ranges = (
+    missed_draw_feature_ranges.round(4)
+)
+
+print(missed_draw_feature_ranges)
+
+
+# 12. FEATURE ANALYSIS BY ROUND
+print("\n===== MISSED DRAW FEATURE ANALYSIS BY ROUND =====")
+
+missed_draw_round_features = (
+    missed_draw_feature_data
+    .groupby("round")[available_features]
+    .mean()
+    .round(4)
+)
+
+print(missed_draw_round_features)
+
+
+# 13. SAVE FEATURE ANALYSIS
+V36_FEATURE_ANALYSIS_FILE = (
+    ERROR_ANALYSIS_DIR /
+    "champions_league_v3_6_feature_draw_analysis.csv"
+)
+
+feature_analysis.to_csv(
+    V36_FEATURE_ANALYSIS_FILE,
+    index=False
+)
+
+print(
+    f"\nV3.6 feature analysis saved to:\n"
+    f"{V36_FEATURE_ANALYSIS_FILE}"
+)
+
+print("\nV3.6 FEATURE-LEVEL DRAW ANALYSIS COMPLETE")
+
+
+
+
+
+# V4-A: CURRENT-SEASON FEATURES
+print(f"\n # V4-A: CURRENT-SEASON FEATURES")
+
+def add_current_season_features(df):
+    """
+    Add current Champions League season statistics.
+
+    Features are calculated strictly BEFORE each match.
+
+    The input dataframe must contain:
+        season
+        date
+        home_team
+        away_team
+        home_goals
+        away_goals
+    """
+
+    df = df.copy()
+
+
+    # Check required columns
+    required_columns = [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+    ]
+
+    missing_columns = [
+        column for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns: {missing_columns}"
+        )
+
+
+    # Prepare data
+    df["date"] = pd.to_datetime(df["date"])
+
+    df = (
+        df.sort_values(
+            ["date", "home_team", "away_team"]
+        )
+        .reset_index(drop=True)
+    )
+
+
+    # Feature columns
+    feature_columns = [
+        "home_current_season_matches",
+        "away_current_season_matches",
+
+        "home_current_season_win_rate",
+        "away_current_season_win_rate",
+
+        "home_current_season_draw_rate",
+        "away_current_season_draw_rate",
+
+        "home_current_season_goal_difference",
+        "away_current_season_goal_difference",
+
+        "home_current_season_avg_goals_for",
+        "away_current_season_avg_goals_for",
+
+        "home_current_season_avg_goals_against",
+        "away_current_season_avg_goals_against",
+
+        "current_season_win_rate_edge",
+        "current_season_draw_rate_edge",
+        "current_season_goal_difference_edge",
+        "current_season_attack_edge",
+        "current_season_defense_edge",
+    ]
+
+    for column in feature_columns:
+        df[column] = 0.0
+
+    # Store statistics for each team in each season
+    team_stats = {}
+
+    # Process matches chronologically
+    for index, row in df.iterrows():
+
+        season = row["season"]
+
+        home_team = row["home_team"]
+        away_team = row["away_team"]
+
+        home_key = (season, home_team)
+        away_key = (season, away_team)
+
+        # Get statistics BEFORE current match
+        home_stats = team_stats.get(
+            home_key,
+            {
+                "matches": 0,
+                "wins": 0,
+                "draws": 0,
+                "goals_for": 0,
+                "goals_against": 0,
+            },
+        )
+
+        away_stats = team_stats.get(
+            away_key,
+            {
+                "matches": 0,
+                "wins": 0,
+                "draws": 0,
+                "goals_for": 0,
+                "goals_against": 0,
+            },
+        )
+
+        # HOME TEAM
+        home_matches = home_stats["matches"]
+
+        if home_matches > 0:
+
+            home_win_rate = (
+                home_stats["wins"] / home_matches
+            )
+
+            home_draw_rate = (
+                home_stats["draws"] / home_matches
+            )
+
+            home_avg_goals_for = (
+                home_stats["goals_for"] / home_matches
+            )
+
+            home_avg_goals_against = (
+                home_stats["goals_against"] / home_matches
+            )
+
+        else:
+
+            home_win_rate = 0.0
+            home_draw_rate = 0.0
+            home_avg_goals_for = 0.0
+            home_avg_goals_against = 0.0
+
+        home_goal_difference = (
+            home_stats["goals_for"]
+            - home_stats["goals_against"]
+        )
+
+        # AWAY TEAM
+        away_matches = away_stats["matches"]
+
+        if away_matches > 0:
+
+            away_win_rate = (
+                away_stats["wins"] / away_matches
+            )
+
+            away_draw_rate = (
+                away_stats["draws"] / away_matches
+            )
+
+            away_avg_goals_for = (
+                away_stats["goals_for"] / away_matches
+            )
+
+            away_avg_goals_against = (
+                away_stats["goals_against"] / away_matches
+            )
+
+        else:
+
+            away_win_rate = 0.0
+            away_draw_rate = 0.0
+            away_avg_goals_for = 0.0
+            away_avg_goals_against = 0.0
+
+        away_goal_difference = (
+            away_stats["goals_for"]
+            - away_stats["goals_against"]
+        )
+
+        # SAVE CURRENT-SEASON FEATURES
+        df.loc[
+            index, "home_current_season_matches"
+        ] = home_matches
+
+        df.loc[
+            index, "away_current_season_matches"
+        ] = away_matches
+
+        df.loc[
+            index, "home_current_season_win_rate"
+        ] = home_win_rate
+
+        df.loc[
+            index, "away_current_season_win_rate"
+        ] = away_win_rate
+
+        df.loc[
+            index, "home_current_season_draw_rate"
+        ] = home_draw_rate
+
+        df.loc[
+            index, "away_current_season_draw_rate"
+        ] = away_draw_rate
+
+        df.loc[
+            index, "home_current_season_goal_difference"
+        ] = home_goal_difference
+
+        df.loc[
+            index, "away_current_season_goal_difference"
+        ] = away_goal_difference
+
+        df.loc[
+            index, "home_current_season_avg_goals_for"
+        ] = home_avg_goals_for
+
+        df.loc[
+            index, "away_current_season_avg_goals_for"
+        ] = away_avg_goals_for
+
+        df.loc[
+            index, "home_current_season_avg_goals_against"
+        ] = home_avg_goals_against
+
+        df.loc[
+            index, "away_current_season_avg_goals_against"
+        ] = away_avg_goals_against
+
+        # RELATIVE FEATURES
+        df.loc[
+            index, "current_season_win_rate_edge"
+        ] = home_win_rate - away_win_rate
+
+        df.loc[
+            index, "current_season_draw_rate_edge"
+        ] = home_draw_rate - away_draw_rate
+
+        df.loc[
+            index, "current_season_goal_difference_edge"
+        ] = (
+            home_goal_difference
+            - away_goal_difference
+        )
+
+        df.loc[
+            index, "current_season_attack_edge"
+        ] = (
+            home_avg_goals_for
+            - away_avg_goals_for
+        )
+
+        # Lower goals conceded = better defense
+        df.loc[
+            index, "current_season_defense_edge"
+        ] = (
+            away_avg_goals_against
+            - home_avg_goals_against
+        )
+
+        # UPDATE STATISTICS AFTER CURRENT MATCH
+        # This is deliberately AFTER feature creation.
+        # Therefore the current match cannot leak into itself.
+
+        home_goals = row["home_goals"]
+        away_goals = row["away_goals"]
+
+        # HOME TEAM UPDATE
+
+        home_stats["matches"] += 1
+
+        home_stats["goals_for"] += home_goals
+
+        home_stats["goals_against"] += away_goals
+
+        if home_goals > away_goals:
+
+            home_stats["wins"] += 1
+
+        elif home_goals == away_goals:
+
+            home_stats["draws"] += 1
+
+        # AWAY TEAM UPDATE
+
+        away_stats["matches"] += 1
+
+        away_stats["goals_for"] += away_goals
+
+        away_stats["goals_against"] += home_goals
+
+        if away_goals > home_goals:
+
+            away_stats["wins"] += 1
+
+        elif away_goals == home_goals:
+
+            away_stats["draws"] += 1
+
+        # Save updated statistics
+        team_stats[home_key] = home_stats
+        team_stats[away_key] = away_stats
+
+    return df
+
+print("\nFEATURES_V2 COLUMNS:")
+print(features_v2.columns.tolist())
+
+print("\nCLEAN DATAFRAME COLUMNS:")
+print(clean_df.columns.tolist())
+
+
+# BUILD V4-A DATASET FROM FULL CLEAN MASTER DATA
+clean_master_path = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "champions_league_all_seasons_clean.csv"
+)
+
+clean_master_df = pd.read_csv(clean_master_path)
+
+print("\nCLEAN MASTER DATASET:")
+print("Shape:", clean_master_df.shape)
+
+print("\nSEASONS:")
+print(
+    clean_master_df["season"]
+    .value_counts()
+    .sort_index()
+)
+
+# Build V4-A features
+features_v4a = add_current_season_features(clean_master_df)
+
+print("\nACTUAL V4-A COLUMNS:")
+print(features_v4a.columns.tolist())
+
+print("\nV4-A FEATURE ENGINEERING")
+print("Shape:", features_v4a.shape)
+
+print("\nV4-A SEASONS:")
+print(
+    features_v4a["season"]
+    .value_counts()
+    .sort_index()
+)
+
+print("\n")
+
+# V4-A FEATURE LIST
+v4a_features = [
+    "home_current_season_matches",
+    "away_current_season_matches",
+
+    "home_current_season_win_rate",
+    "away_current_season_win_rate",
+
+    "home_current_season_draw_rate",
+    "away_current_season_draw_rate",
+
+    "home_current_season_goal_difference",
+    "away_current_season_goal_difference",
+
+    "home_current_season_avg_goals_for",
+    "away_current_season_avg_goals_for",
+
+    "home_current_season_avg_goals_against",
+    "away_current_season_avg_goals_against",
+
+    "current_season_win_rate_edge",
+    "current_season_draw_rate_edge",
+    "current_season_goal_difference_edge",
+
+    "current_season_attack_edge",
+    "current_season_defense_edge",
+]
+
+
+print("\nV4-A FEATURES:")
+print(v4a_features)
+
+print("\nACTUAL V4-A COLUMNS:")
+print(features_v4a.columns.tolist())
+
+# V4-A SANITY AND LEAKAGE CHECK
+print("\n" + "=" * 60)
+print("V4-A SANITY AND LEAKAGE CHECK")
+print("=" * 60)
+
+
+# 1. BASIC SHAPE CHECK
+print("\n1. BASIC CHECK")
+
+print("Rows:", len(features_v4a))
+print("Columns:", len(features_v4a.columns))
+
+assert len(features_v4a) == 2122, (
+    f"Expected 2122 rows, got {len(features_v4a)}"
+)
+
+print("✓ Row count correct")
+
+
+# 2. REQUIRED COLUMNS CHECK
+required_v4a_columns = [
+    "season",
+    "date",
+    "home_team",
+    "away_team",
+    "home_goals",
+    "away_goals",
+    "result",
+] + v4a_features
+
+missing_v4a_columns = [
+    column
+    for column in required_v4a_columns
+    if column not in features_v4a.columns
+]
+
+print("\n2. REQUIRED COLUMNS")
+
+if missing_v4a_columns:
+    print("Missing columns:", missing_v4a_columns)
+    raise ValueError(
+        f"V4-A missing columns: {missing_v4a_columns}"
+    )
+
+print("✓ All required columns present")
+
+
+# 3. MISSING-VALUE CHECK
+print("\n3. MISSING VALUES")
+
+missing_values = (
+    features_v4a[v4a_features]
+    .isna()
+    .sum()
+)
+
+print(missing_values)
+
+assert missing_values.sum() == 0, (
+    "V4-A contains missing feature values"
+)
+
+print("✓ No missing V4-A feature values")
+
+
+# 4. DUPLICATE MATCH CHECK
+print("\n4. DUPLICATE MATCH CHECK")
+
+duplicate_matches = features_v4a.duplicated(
+    subset=["season", "date", "home_team", "away_team"]
+).sum()
+
+print("Duplicate matches:", duplicate_matches)
+
+assert duplicate_matches == 0, (
+    f"Found {duplicate_matches} duplicate matches"
+)
+
+print("✓ No duplicate matches")
+
+
+# 5. SEASON COUNT CHECK
+print("\n5. SEASON COUNTS")
+
+season_counts = (
+    features_v4a["season"]
+    .value_counts()
+    .sort_index()
+)
+
+print(season_counts)
+
+assert len(season_counts) == 16, (
+    f"Expected 16 seasons, got {len(season_counts)}"
+)
+
+print("✓ All 16 seasons present")
+
+
+# 6. FIRST-MATCH CURRENT-SEASON CHECK
+print("\n6. FIRST-MATCH CHECK")
+
+first_matches = (
+    features_v4a
+    .sort_values(["season", "date"])
+    .groupby("season")
+    .head(1)
+)
+
+first_match_columns = [
+    "season",
+    "date",
+    "home_team",
+    "away_team",
+    "home_current_season_matches",
+    "away_current_season_matches",
+]
+
+print(
+    first_matches[first_match_columns].to_string(
+        index=False
+    )
+)
+
+first_match_counts = first_matches[
+    [
+        "home_current_season_matches",
+        "away_current_season_matches",
+    ]
+]
+
+assert (
+    first_match_counts == 0
+).all().all(), (
+    "First matches contain prior current-season matches"
+)
+
+print("✓ First matches correctly start at zero")
+
+
+# 7. NO NEGATIVE CURRENT-SEASON MATCH COUNTS
+print("\n7. NEGATIVE-VALUE CHECK")
+
+count_columns = [
+    "home_current_season_matches",
+    "away_current_season_matches",
+]
+
+negative_counts = (
+    features_v4a[count_columns] < 0
+).sum()
+
+print(negative_counts)
+
+assert negative_counts.sum() == 0, (
+    "Negative current-season match counts detected"
+)
+
+print("✓ No negative match counts")
+
+
+# 8. CURRENT-SEASON MATCH COUNT SANITY
+print("\n8. MATCH COUNT RANGE")
+
+for column in count_columns:
+
+    print(
+        f"{column}: "
+        f"min={features_v4a[column].min()}, "
+        f"max={features_v4a[column].max()}"
+    )
+
+assert (
+    features_v4a[count_columns] >= 0
+).all().all()
+
+print("✓ Match-count ranges valid")
+
+
+# 9. GOAL-DIFFERENCE CONSISTENCY
+print("\n9. GOAL DIFFERENCE CHECK")
+
+home_expected_goal_difference = (
+    features_v4a["home_current_season_avg_goals_for"]
+    * features_v4a["home_current_season_matches"]
+    -
+    features_v4a["home_current_season_avg_goals_against"]
+    * features_v4a["home_current_season_matches"]
+)
+
+away_expected_goal_difference = (
+    features_v4a["away_current_season_avg_goals_for"]
+    * features_v4a["away_current_season_matches"]
+    -
+    features_v4a["away_current_season_avg_goals_against"]
+    * features_v4a["away_current_season_matches"]
+)
+
+home_goal_difference_check = np.isclose(
+    features_v4a["home_current_season_goal_difference"],
+    home_expected_goal_difference,
+    atol=1e-10
+)
+
+away_goal_difference_check = np.isclose(
+    features_v4a["away_current_season_goal_difference"],
+    away_expected_goal_difference,
+    atol=1e-10
+)
+
+print(
+    "Home goal difference mismatches:",
+    (~home_goal_difference_check).sum()
+)
+
+print(
+    "Away goal difference mismatches:",
+    (~away_goal_difference_check).sum()
+)
+
+assert home_goal_difference_check.all(), (
+    "Home goal difference calculation has mismatches"
+)
+
+assert away_goal_difference_check.all(), (
+    "Away goal difference calculation has mismatches"
+)
+
+print("✓ Goal-difference calculations are consistent")
+
+
+# 10. V4-A FEATURE SUMMARY
+print("\n10. V4-A FEATURE SUMMARY")
+
+print(
+    features_v4a[v4a_features]
+    .describe()
+    .T[
+        [
+            "mean",
+            "std",
+            "min",
+            "max",
+        ]
+    ]
+)
+
+
+# FINAL RESULT
+print("\n" + "=" * 60)
+print("V4-A SANITY CHECK COMPLETE")
+print("=" * 60)
+
+
+
+
+
+# V4-A + V2 COMBINED DATASET
+print("\n" + "=" * 60)
+print("V4-A + V2 COMBINED DATASET")
+print("=" * 60)
+
+
+# Keep only V4-A features and matching keys
+v4a_features_only = features_v4a[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+    ] + v4a_features
+].copy()
+
+
+# Merge V4-A features into the existing V2 dataset
+features_v4a_combined = features_v2.merge(
+    v4a_features_only,
+    on=[
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+    ],
+    how="left",
+    validate="one_to_one",
+)
+
+
+# BASIC CHECKS
+print("\nCOMBINED DATASET SHAPE:")
+print(features_v4a_combined.shape)
+
+
+# Check row count
+assert len(features_v4a_combined) == 2122, (
+    f"Expected 2122 rows, got {len(features_v4a_combined)}"
+)
+
+print("✓ Row count correct")
+
+
+# Check V4-A missing values
+combined_missing = (
+    features_v4a_combined[v4a_features]
+    .isna()
+    .sum()
+)
+
+print("\nV4-A MISSING VALUES:")
+print(combined_missing)
+
+assert combined_missing.sum() == 0, (
+    "Missing V4-A values found after merge"
+)
+
+print("✓ No missing V4-A values")
+
+
+# Check duplicates
+combined_duplicates = features_v4a_combined.duplicated(
+    subset=[
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+    ]
+).sum()
+
+print("\nDUPLICATE MATCHES:", combined_duplicates)
+
+assert combined_duplicates == 0, (
+    f"Found {combined_duplicates} duplicate matches"
+)
+
+print("✓ No duplicate matches")
+
+
+# Check result consistency
+result_mismatches = (
+    features_v4a_combined["result"]
+    != features_v4a_combined["result"]
+).sum()
+
+print("\nRESULT MISMATCHES:", result_mismatches)
+
+
+# Save combined dataset
+v4a_combined_path = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "champions_league_features_v4a_combined.csv"
+)
+
+features_v4a_combined.to_csv(
+    v4a_combined_path,
+    index=False
+)
+
+print(
+    f"\n✓ V4-A combined dataset saved to:\n"
+    f"{v4a_combined_path}"
+)
+
+print("\n" + "=" * 60)
+print("V4-A + V2 COMBINATION COMPLETE")
+print("=" * 60)
+
+
+
+
+print("\n V4-A MODEL FEATURE LIST ")
+# V4-A MODEL FEATURE LIST
+# Existing V2 model features
+V2_MODEL_FEATURES = [
+    "home_matches_before",
+    "away_matches_before",
+    "home_avg_goals_for",
+    "home_avg_goals_against",
+    "away_avg_goals_for",
+    "away_avg_goals_against",
+    "home_win_rate",
+    "away_win_rate",
+    "home_home_win_rate",
+    "away_away_win_rate",
+    "home_recent_points_5",
+    "away_recent_points_5",
+    "home_days_since_match_capped",
+    "away_days_since_match_capped",
+    "home_has_previous_match",
+    "away_has_previous_match",
+    "home_goal_scoring_edge",
+    "home_defensive_edge",
+    "home_attack_vs_away_defense",
+    "away_attack_vs_home_defense",
+    "win_rate_edge",
+    "venue_win_rate_edge",
+    "recent_points_edge",
+    "experience_edge",
+    "days_since_match_edge",
+]
+
+
+# Add V4-A features
+V4A_MODEL_FEATURES = (
+    V2_MODEL_FEATURES
+    + v4a_features
+)
+
+
+print("\n" + "=" * 60)
+print("V4-A MODEL FEATURES")
+print("=" * 60)
+
+print("V2 features:", len(V2_MODEL_FEATURES))
+print("V4-A features:", len(v4a_features))
+print("Combined features:", len(V4A_MODEL_FEATURES))
+
+
+# V4-A FEATURE AVAILABILITY CHECK
+missing_model_features = [
+    feature
+    for feature in V4A_MODEL_FEATURES
+    if feature not in features_v4a_combined.columns
+]
+
+print("\nMISSING MODEL FEATURES:")
+print(missing_model_features)
+
+assert len(missing_model_features) == 0, (
+    f"Missing model features: {missing_model_features}"
+)
+
+print("✓ All 42 model features are available")
+
+
+
+# SAME TIME-AWARE TRAIN / TEST SPLIT
+V4A_TEST_START_DATE = pd.Timestamp("2023-11-29")
+
+v4a_train_df = features_v4a_combined[
+    features_v4a_combined["date"] < V4A_TEST_START_DATE
+].copy()
+
+v4a_test_df = features_v4a_combined[
+    features_v4a_combined["date"] >= V4A_TEST_START_DATE
+].copy()
+
+print("\n" + "=" * 60)
+print("V4-A TIME-AWARE SPLIT")
+print("=" * 60)
+
+print("Training rows:", len(v4a_train_df))
+print("Test rows:", len(v4a_test_df))
+
+print(
+    "Train dates:",
+    v4a_train_df["date"].min(),
+    "to",
+    v4a_train_df["date"].max()
+)
+
+print(
+    "Test dates:",
+    v4a_test_df["date"].min(),
+    "to",
+    v4a_test_df["date"].max()
+)
+
+assert len(v4a_train_df) == 1691
+assert len(v4a_test_df) == 431
+
+assert (
+    v4a_train_df["date"].max()
+    <
+    v4a_test_df["date"].min()
+)
+
+print("✓ Same 431-match holdout confirmed")
+print("✓ No train/test date overlap")
+
+
+
+# PREPARE V4-A TRAINING DATA
+X_v4a_train = v4a_train_df[V4A_MODEL_FEATURES]
+y_v4a_train = v4a_train_df["result"]
+
+X_v4a_test = v4a_test_df[V4A_MODEL_FEATURES]
+y_v4a_test = v4a_test_df["result"]
+
+print("\nV4-A TRAINING SHAPE:", X_v4a_train.shape)
+print("V4-A TEST SHAPE:", X_v4a_test.shape)
+
+print("\nTARGET DISTRIBUTION - TRAIN:")
+print(y_v4a_train.value_counts())
+
+print("\nTARGET DISTRIBUTION - TEST:")
+print(y_v4a_test.value_counts())
+
+
+
+print("\n TRAIN V4-A CATBOOST ")
+
+# TRAIN V4-A CATBOOST
+v4a_catboost = CatBoostClassifier(
+    iterations=500,
+    depth=6,
+    learning_rate=0.05,
+    loss_function="MultiClass",
+    verbose=False
+)
+
+
+# TIME-AWARE CALIBRATION
+v4a_calibrated_model = CalibratedClassifierCV(
+    v4a_catboost,
+    cv=TimeSeriesSplit(n_splits=5),
+    method="sigmoid",
+    ensemble=True
+)
+
+
+# FIT MODEL
+v4a_calibrated_model.fit(
+    X_v4a_train,
+    y_v4a_train
+)
+
+print("✓ V4-A CatBoost training complete")
+print("✓ V4-A calibration complete")
+
+
+# V4-A TEST PREDICTIONS
+v4a_test_probabilities = v4a_calibrated_model.predict_proba(
+    X_v4a_test
+)
+
+v4a_test_predictions = v4a_calibrated_model.predict(
+    X_v4a_test
+)
+
+print("Probability shape:", v4a_test_probabilities.shape)
+print("Prediction count:", len(v4a_test_predictions))
+
+print("\nMODEL CLASSES:")
+print(v4a_calibrated_model.classes_)
+
+
+
+# V4-A EVALUATION
+v4a_accuracy = accuracy_score(
+    y_v4a_test,
+    v4a_test_predictions
+)
+
+v4a_logloss = log_loss(
+    y_v4a_test,
+    v4a_test_probabilities,
+    labels=v4a_calibrated_model.classes_
+)
+
+# Convert actual labels to one-hot
+class_order = list(v4a_calibrated_model.classes_)
+
+y_test_encoded = np.array([
+    [1 if actual == cls else 0 for cls in class_order]
+    for actual in y_v4a_test
+])
+
+# Multiclass Brier score
+v4a_brier = np.mean(
+    np.sum(
+        (y_test_encoded - v4a_test_probabilities) ** 2,
+        axis=1
+    )
+)
+
+v4a_normalized_brier = v4a_brier / 3
+
+print("\n" + "=" * 60)
+print("V4-A CALIBRATED CATBOOST RESULTS")
+print("=" * 60)
+
+print(f"Accuracy:          {v4a_accuracy:.4f}")
+print(f"Log Loss:          {v4a_logloss:.4f}")
+print(f"Brier Score:       {v4a_brier:.4f}")
+print(f"Normalized Brier:  {v4a_normalized_brier:.4f}")
+
+print("\nCONFUSION MATRIX")
+print(confusion_matrix(
+    y_v4a_test,
+    v4a_test_predictions,
+    labels=["A", "D", "H"]
+))
+
+
+
+
+
+# V4-A PROBABILITY DISTRIBUTION ANALYSIS
+# Probability column positions
+class_order = list(v4a_calibrated_model.classes_)
+
+a_idx = class_order.index("A")
+d_idx = class_order.index("D")
+h_idx = class_order.index("H")
+
+v4a_away_prob = v4a_test_probabilities[:, a_idx]
+v4a_draw_prob = v4a_test_probabilities[:, d_idx]
+v4a_home_prob = v4a_test_probabilities[:, h_idx]
+
+print("\n" + "=" * 60)
+print("V4-A PROBABILITY DISTRIBUTION")
+print("=" * 60)
+
+print(f"Average Away probability:  {v4a_away_prob.mean():.4f}")
+print(f"Average Draw probability:  {v4a_draw_prob.mean():.4f}")
+print(f"Average Home probability:  {v4a_home_prob.mean():.4f}")
+
+print("\nProbability ranges:")
+
+print(
+    f"Away: min={v4a_away_prob.min():.4f}, "
+    f"max={v4a_away_prob.max():.4f}"
+)
+
+print(
+    f"Draw: min={v4a_draw_prob.min():.4f}, "
+    f"max={v4a_draw_prob.max():.4f}"
+)
+
+print(
+    f"Home: min={v4a_home_prob.min():.4f}, "
+    f"max={v4a_home_prob.max():.4f}"
+)
+
+
+
+# ACTUAL VS PREDICTED RESULT DISTRIBUTION
+actual_distribution = y_v4a_test.value_counts(normalize=True)
+
+predicted_distribution = pd.Series(
+    v4a_test_predictions
+).value_counts(normalize=True)
+
+print("\n" + "=" * 60)
+print("ACTUAL VS PREDICTED RESULT DISTRIBUTION")
+print("=" * 60)
+
+print("\nACTUAL:")
+print(actual_distribution.sort_index())
+
+print("\nPREDICTED:")
+print(predicted_distribution.sort_index())
+
+
+# V4-A DRAW PROBABILITY ANALYSIS
+v4a_draw_analysis = pd.DataFrame({
+    "actual_result": y_v4a_test.values,
+    "draw_probability": v4a_draw_prob
+})
+
+v4a_draw_analysis["is_actual_draw"] = (
+    v4a_draw_analysis["actual_result"] == "D"
+)
+
+print("\n" + "=" * 60)
+print("V4-A DRAW PROBABILITY ANALYSIS")
+print("=" * 60)
+
+print(
+    f"Mean Draw probability: "
+    f"{v4a_draw_probability_mean if False else v4a_draw_prob.mean():.4f}"
+)
+
+print(
+    f"Median Draw probability: "
+    f"{np.median(v4a_draw_prob):.4f}"
+)
+
+print(
+    f"Minimum Draw probability: "
+    f"{v4a_draw_prob.min():.4f}"
+)
+
+print(
+    f"Maximum Draw probability: "
+    f"{v4a_draw_prob.max():.4f}"
+)
+
+print("\nActual draws:", int(v4a_draw_analysis["is_actual_draw"].sum()))
+print(
+    "Actual draw rate:",
+    f"{v4a_draw_analysis['is_actual_draw'].mean():.4f}"
+)
+
+
+# CHECK AVAILABLE MODEL VARIABLES
+print("V2-related variables:")
+
+for name in sorted(globals()):
+    if "v2" in name.lower() or "prob" in name.lower():
+        print(name)
+
+
+# V2 VS V4-A PROBABILITY COMPARISON
+# Get the V2 class order
+v2_class_order = list(v2_cb_classes)
+
+v2_d_idx = v2_class_order.index("D")
+
+# V2 Draw probabilities
+v2_draw_prob = v2_cb_prob[:, v2_d_idx]
+
+
+# BUILD COMPARISON DATAFRAME
+comparison = pd.DataFrame({
+    "actual_result": y_test_v2.values,
+    "v2_draw_probability": v2_draw_prob,
+    "v4a_draw_probability": v4a_draw_prob
+})
+
+comparison["draw_probability_change"] = (
+    comparison["v4a_draw_probability"]
+    - comparison["v2_draw_probability"]
+)
+
+
+# DISPLAY COMPARISON
+print("\n" + "=" * 60)
+print("V2 VS V4-A DRAW PROBABILITY")
+print("=" * 60)
+
+print(
+    f"V2 mean Draw probability:   "
+    f"{v2_draw_prob.mean():.4f}"
+)
+
+print(
+    f"V4-A mean Draw probability: "
+    f"{v4a_draw_prob.mean():.4f}"
+)
+
+print(
+    f"Mean probability change:    "
+    f"{comparison['draw_probability_change'].mean():+.4f}"
+)
+
+print(
+    f"Actual Draw mean V2:        "
+    f"{comparison.loc[comparison.actual_result == 'D', 'v2_draw_probability'].mean():.4f}"
+)
+
+print(
+    f"Actual Draw mean V4-A:      "
+    f"{comparison.loc[comparison.actual_result == 'D', 'v4a_draw_probability'].mean():.4f}"
+)
+
+
+print("\n # V2 VS V4-A SEASON-LEVEL ROBUSTNESS ")
+# PREPARE V2 AND V4-A PREDICTIONS
+# V2 hard predictions
+v2_predictions = v2_cb_pred
+
+# V2 probabilities
+v2_probabilities = v2_cb_prob
+
+# V4-A hard predictions
+v4a_predictions = v4a_test_predictions
+
+# V4-A probabilities
+v4a_probabilities = v4a_test_probabilities
+
+
+# GET SEASON INFORMATION
+# The V2 test dataframe contains the same 431-match holdout
+season_test = test_df_v2[[
+    "season",
+    "date",
+    "home_team",
+    "away_team",
+    "result"
+]].copy()
+
+season_test = season_test.reset_index(drop=True)
+
+
+# HELPER FUNCTION
+def calculate_multiclass_brier(y_true, probabilities, classes):
+    class_to_index = {
+        cls: i for i, cls in enumerate(classes)
+    }
+
+    y_encoded = np.array([
+        [
+            1 if class_to_index[actual] == i else 0
+            for i in range(len(classes))
+        ]
+        for actual in y_true
+    ])
+
+    return np.mean(
+        np.sum(
+            (y_encoded - probabilities) ** 2,
+            axis=1
+        )
+    )
+
+
+# V2 CLASS ORDER
+v2_classes = list(v2_cb_classes)
+
+# V4-A class order
+v4a_classes = list(v4a_calibrated_model.classes_)
+
+
+# CALCULATE RESULTS BY SEASON
+season_results = []
+
+for season in sorted(season_test["season"].unique()):
+
+    mask = season_test["season"] == season
+
+    y_true = season_test.loc[mask, "result"].values
+
+    # V2
+    v2_probs = v2_probabilities[mask.values]
+    v2_preds = np.array(v2_predictions)[mask.values]
+
+    v2_accuracy = accuracy_score(
+        y_true,
+        v2_preds
+    )
+
+    v2_logloss = log_loss(
+        y_true,
+        v2_probs,
+        labels=v2_classes
+    )
+
+    v2_brier = calculate_multiclass_brier(
+        y_true,
+        v2_probs,
+        v2_classes
+    )
+
+    # V4-A
+    v4a_probs = v4a_probabilities[mask.values]
+    v4a_preds = np.array(v4a_predictions)[mask.values]
+
+    v4a_accuracy = accuracy_score(
+        y_true,
+        v4a_preds
+    )
+
+    v4a_logloss = log_loss(
+        y_true,
+        v4a_probs,
+        labels=v4a_classes
+    )
+
+    v4a_brier = calculate_multiclass_brier(
+        y_true,
+        v4a_probs,
+        v4a_classes
+    )
+
+    # Store
+    season_results.append({
+        "season": season,
+        "matches": int(mask.sum()),
+
+        "v2_accuracy": v2_accuracy,
+        "v4a_accuracy": v4a_accuracy,
+        "accuracy_change": v4a_accuracy - v2_accuracy,
+
+        "v2_logloss": v2_logloss,
+        "v4a_logloss": v4a_logloss,
+        "logloss_change": v4a_logloss - v2_logloss,
+
+        "v2_brier": v2_brier,
+        "v4a_brier": v4a_brier,
+        "brier_change": v4a_brier - v2_brier
+    })
+
+
+# DISPLAY RESULTS
+season_results_df = pd.DataFrame(season_results)
+
+print("\n" + "=" * 80)
+print("V2 VS V4-A SEASON-LEVEL ROBUSTNESS")
+print("=" * 80)
+
+print(
+    season_results_df.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+
+
+
+# V2 VS V4-A PREDICTION ALIGNMENT CHECK
+print("\n" + "=" * 60)
+print("PREDICTION ALIGNMENT CHECK")
+print("=" * 60)
+
+print("V2 test rows:", len(test_df_v2))
+print("V4-A test rows:", len(v4a_test_df))
+
+print("\nFirst 5 V2 matches:")
+print(
+    test_df_v2[
+        ["season", "date", "home_team", "away_team", "result"]
+    ].head().to_string(index=False)
+)
+
+print("\nFirst 5 V4-A matches:")
+print(
+    v4a_test_df[
+        ["season", "date", "home_team", "away_team", "result"]
+    ].head().to_string(index=False)
+)
+
+
+
+# EXACT MATCH ALIGNMENT
+v2_keys = test_df_v2[
+    ["season", "date", "home_team", "away_team"]
+].reset_index(drop=True)
+
+v4a_keys = v4a_test_df[
+    ["season", "date", "home_team", "away_team"]
+].reset_index(drop=True)
+
+alignment_check = v2_keys.equals(v4a_keys)
+
+print("\nSame match ordering:", alignment_check)
+
+if not alignment_check:
+    print("\nFirst mismatches:")
+
+    mismatch_mask = (
+        v2_keys.astype(str).ne(v4a_keys.astype(str)).any(axis=1)
+    )
+
+    print(
+        pd.concat(
+            [
+                v2_keys[mismatch_mask].add_prefix("V2_"),
+                v4a_keys[mismatch_mask].add_prefix("V4A_")
+            ],
+            axis=1
+        ).head(10).to_string(index=False)
+    )
+else:
+    print("✓ V2 and V4-A test matches are perfectly aligned")
+
+
+
+print("\n # ALIGN V2 AND V4-A PREDICTIONS BY MATCH")
+# ALIGN V2 AND V4-A PREDICTIONS BY MATCH
+# V2 prediction dataframe
+v2_prediction_df = test_df_v2[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+v2_prediction_df["v2_prediction"] = np.array(v2_cb_pred)
+v2_prediction_df["v2_prob_A"] = v2_cb_prob[:, v2_cb_classes.tolist().index("A")]
+v2_prediction_df["v2_prob_D"] = v2_cb_prob[:, v2_cb_classes.tolist().index("D")]
+v2_prediction_df["v2_prob_H"] = v2_cb_prob[:, v2_cb_classes.tolist().index("H")]
+
+
+# V4-A prediction dataframe
+v4a_prediction_df = v4a_test_df[
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+v4a_prediction_df["v4a_prediction"] = np.array(v4a_test_predictions)
+v4a_prediction_df["v4a_prob_A"] = v4a_test_probabilities[:, a_idx]
+v4a_prediction_df["v4a_prob_D"] = v4a_test_probabilities[:, d_idx]
+v4a_prediction_df["v4a_prob_H"] = v4a_test_probabilities[:, h_idx]
+
+
+print("✓ V2 prediction dataframe created")
+print("✓ V4-A prediction dataframe created")
+
+
+
+# MERGE V2 AND V4-A BY MATCH KEY
+match_keys = [
+    "season",
+    "date",
+    "home_team",
+    "away_team"
+]
+
+aligned_predictions = v2_prediction_df.merge(
+    v4a_prediction_df[
+        match_keys +
+        [
+            "v4a_prediction",
+            "v4a_prob_A",
+            "v4a_prob_D",
+            "v4a_prob_H"
+        ]
+    ],
+    on=match_keys,
+    how="inner",
+    validate="one_to_one"
+)
+
+print("\n" + "=" * 60)
+print("ALIGNED PREDICTIONS")
+print("=" * 60)
+
+print("V2 rows:", len(v2_prediction_df))
+print("V4-A rows:", len(v4a_prediction_df))
+print("Aligned rows:", len(aligned_predictions))
+
+print(
+    "\nMissing V2/V4-A matches:",
+    431 - len(aligned_predictions)
+)
+
+
+
+# VERIFY ALIGNED RESULTS
+
+print("\n" + "=" * 60)
+print("ALIGNMENT VERIFICATION")
+print("=" * 60)
+
+print("Aligned rows:", len(aligned_predictions))
+
+print(
+    "Unique matches:",
+    aligned_predictions[
+        ["season", "date", "home_team", "away_team"]
+    ].drop_duplicates().shape[0]
+)
+
+print("✓ V2 and V4-A predictions aligned by exact fixture")
+print("✓ All 431 matches matched")
+
+
+
+print("\n # V2 VS V4-A — CORRECT SEASON-LEVEL ROBUSTNESS")
+
+# V2 VS V4-A — CORRECT SEASON-LEVEL ROBUSTNESS
+def multiclass_brier(y_true, probabilities, classes):
+    class_to_index = {cls: i for i, cls in enumerate(classes)}
+
+    y_one_hot = np.zeros((len(y_true), len(classes)))
+
+    for row_index, actual in enumerate(y_true):
+        y_one_hot[row_index, class_to_index[actual]] = 1
+
+    return np.mean(np.sum((probabilities - y_one_hot) ** 2, axis=1))
+
+
+season_results = []
+
+for season, group in aligned_predictions.groupby("season", sort=True):
+
+    y_true = group["result"]
+
+
+    # V2
+    v2_predictions = group["v2_prediction"]
+
+    v2_probabilities = group[
+        ["v2_prob_A", "v2_prob_D", "v2_prob_H"]
+    ].values
+
+    v2_accuracy = accuracy_score(
+        y_true,
+        v2_predictions
+    )
+
+    v2_log_loss = log_loss(
+        y_true,
+        v2_probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    v2_brier = multiclass_brier(
+        y_true,
+        v2_probabilities,
+        ["A", "D", "H"]
+    )
+
+
+    # V4-A
+    v4a_predictions = group["v4a_prediction"]
+
+    v4a_probabilities = group[
+        ["v4a_prob_A", "v4a_prob_D", "v4a_prob_H"]
+    ].values
+
+    v4a_accuracy = accuracy_score(
+        y_true,
+        v4a_predictions
+    )
+
+    v4a_log_loss = log_loss(
+        y_true,
+        v4a_probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    v4a_brier = multiclass_brier(
+        y_true,
+        v4a_probabilities,
+        ["A", "D", "H"]
+    )
+
+    season_results.append({
+        "season": season,
+        "matches": len(group),
+
+        "v2_accuracy": v2_accuracy,
+        "v4a_accuracy": v4a_accuracy,
+        "accuracy_change": v4a_accuracy - v2_accuracy,
+
+        "v2_log_loss": v2_log_loss,
+        "v4a_log_loss": v4a_log_loss,
+        "log_loss_change": v4a_log_loss - v2_log_loss,
+
+        "v2_brier": v2_brier,
+        "v4a_brier": v4a_brier,
+        "brier_change": v4a_brier - v2_brier,
+    })
+
+
+season_robustness = pd.DataFrame(season_results)
+
+
+print("\n" + "=" * 70)
+print("V2 VS V4-A — SEASON ROBUSTNESS")
+print("=" * 70)
+
+print(
+    season_robustness.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+print("\n" + "=" * 70)
+print("AVERAGE CHANGE")
+print("=" * 70)
+
+print(
+    "Mean accuracy change:",
+    f"{season_robustness['accuracy_change'].mean():.4f}"
+)
+
+print(
+    "Mean Log Loss change:",
+    f"{season_robustness['log_loss_change'].mean():.4f}"
+)
+
+print(
+    "Mean Brier change:",
+    f"{season_robustness['brier_change'].mean():.4f}"
+)
+
+
+
+# V4-A — DRAW PROBABILITY COMPARISON
+draw_matches = aligned_predictions[
+    aligned_predictions["result"] == "D"
+].copy()
+
+print("\n" + "=" * 70)
+print("V2 VS V4-A — ACTUAL DRAW MATCHES")
+print("=" * 70)
+
+print("Actual draw matches:", len(draw_matches))
+
+print("\nV2 Draw Probability:")
+print(
+    draw_matches["v2_prob_D"].describe()
+)
+
+print("\nV4-A Draw Probability:")
+print(
+    draw_matches["v4a_prob_D"].describe()
+)
+
+print("\nAverage Draw Probability:")
+print(
+    "V2:",
+    f"{draw_matches['v2_prob_D'].mean():.4f}"
+)
+
+print(
+    "V4-A:",
+    f"{draw_matches['v4a_prob_D'].mean():.4f}"
+)
+
+print(
+    "Change:",
+    f"{draw_matches['v4a_prob_D'].mean() - draw_matches['v2_prob_D'].mean():+.4f}"
+)
+
+print("\n" + "=" * 70)
+print("DRAW PROBABILITY BY SEASON")
+print("=" * 70)
+
+draw_by_season = (
+    draw_matches
+    .groupby("season")
+    .agg(
+        matches=("result", "size"),
+        v2_mean_draw_probability=("v2_prob_D", "mean"),
+        v4a_mean_draw_probability=("v4a_prob_D", "mean"),
+    )
+    .reset_index()
+)
+
+draw_by_season["change"] = (
+    draw_by_season["v4a_mean_draw_probability"]
+    - draw_by_season["v2_mean_draw_probability"]
+)
+
+print(
+    draw_by_season.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+
+
+# V4-A.1 — RELATIVE CURRENT-SEASON FEATURES
+V4A1_FEATURES = [
+    "current_season_win_rate_edge",
+    "current_season_draw_rate_edge",
+    "current_season_goal_difference_edge",
+    "current_season_attack_edge",
+    "current_season_defense_edge",
+]
+
+V4A1_MODEL_FEATURES = V2_MODEL_FEATURES + V4A1_FEATURES
+
+print("\n" + "=" * 70)
+print("V4-A.1 FEATURE SET")
+print("=" * 70)
+
+print("V2 features:", len(V2_MODEL_FEATURES))
+print("V4-A.1 features:", len(V4A1_FEATURES))
+print("Total features:", len(V4A1_MODEL_FEATURES))
+
+print("\nV4-A.1 added features:")
+for feature in V4A1_FEATURES:
+    print("✓", feature)
+
+
+
+# TRAIN V4-A.1
+X_v4a1 = features_v4a_combined[V4A1_MODEL_FEATURES].copy()
+y_v4a1 = features_v4a_combined["result"].copy()
+
+# SAME TIME-AWARE SPLIT
+train_mask_v4a1 = features_v4a_combined["date"] < "2023-11-29"
+test_mask_v4a1 = features_v4a_combined["date"] >= "2023-11-29"
+
+X_train_v4a1 = X_v4a1.loc[train_mask_v4a1]
+X_test_v4a1 = X_v4a1.loc[test_mask_v4a1]
+
+y_train_v4a1 = y_v4a1.loc[train_mask_v4a1]
+y_test_v4a1 = y_v4a1.loc[test_mask_v4a1]
+
+print("\n" + "=" * 70)
+print("V4-A.1 TIME-AWARE SPLIT")
+print("=" * 70)
+
+print("Train rows:", len(X_train_v4a1))
+print("Test rows:", len(X_test_v4a1))
+
+print(
+    "Train dates:",
+    features_v4a_combined.loc[train_mask_v4a1, "date"].min(),
+    "to",
+    features_v4a_combined.loc[train_mask_v4a1, "date"].max()
+)
+
+print(
+    "Test dates:",
+    features_v4a_combined.loc[test_mask_v4a1, "date"].min(),
+    "to",
+    features_v4a_combined.loc[test_mask_v4a1, "date"].max()
+)
+
+
+
+# CALIBRATED CATBOOST — V4-A.1
+catboost_v4a1 = CatBoostClassifier(
+#    catboost_model_v2 = CatBoostClassifier(
+#    iterations=500,
+#    depth=5,
+#    learning_rate=0.03,
+#    loss_function="MultiClass",
+#    random_seed=42,
+#    verbose=False
+#)
+)
+
+time_split_v4a1 = TimeSeriesSplit(n_splits=5)
+
+calibrated_v4a1 = CalibratedClassifierCV(
+    estimator=catboost_v4a1,
+    cv=time_split_v4a1,
+    method="sigmoid",
+    ensemble=True
+)
+
+calibrated_v4a1.fit(
+    X_train_v4a1,
+    y_train_v4a1
+)
+
+v4a1_test_probabilities = calibrated_v4a1.predict_proba(
+    X_test_v4a1
+)
+
+v4a1_classes = calibrated_v4a1.classes_
+
+v4a1_test_predictions = calibrated_v4a1.predict(
+    X_test_v4a1
+)
+
+print("\nV4-A.1 trained successfully")
+print("Probability shape:", v4a1_test_probabilities.shape)
+print("Classes:", v4a1_classes)
+
+
+
+# V4-A.1 EVALUATION
+a_idx = v4a1_classes.tolist().index("A")
+d_idx = v4a1_classes.tolist().index("D")
+h_idx = v4a1_classes.tolist().index("H")
+
+v4a1_accuracy = accuracy_score(
+    y_test_v4a1,
+    v4a1_test_predictions
+)
+
+v4a1_log_loss = log_loss(
+    y_test_v4a1,
+    v4a1_test_probabilities,
+    labels=["A", "D", "H"]
+)
+
+v4a1_brier = multiclass_brier(
+    y_test_v4a1,
+    v4a1_test_probabilities,
+    ["A", "D", "H"]
+)
+
+v4a1_normalized_brier = v4a1_brier / 3
+
+print("\n" + "=" * 70)
+print("V4-A.1 RESULTS")
+print("=" * 70)
+
+print("Accuracy:", f"{v4a1_accuracy:.4f}")
+print("Log Loss:", f"{v4a1_log_loss:.4f}")
+print("Brier:", f"{v4a1_brier:.4f}")
+print("Normalized Brier:", f"{v4a1_normalized_brier:.4f}")
+
+print("\nAverage probabilities:")
+
+print(
+    "Away:",
+    f"{v4a1_test_probabilities[:, a_idx].mean():.4f}"
+)
+
+print(
+    "Draw:",
+    f"{v4a1_test_probabilities[:, d_idx].mean():.4f}"
+)
+
+print(
+    "Home:",
+    f"{v4a1_test_probabilities[:, h_idx].mean():.4f}"
+)
+
+print("\nHard predictions:")
+
+print(
+    pd.Series(v4a1_test_predictions)
+    .value_counts()
+    .sort_index()
+)
+
+
+
+# V4-A — CURRENT-SEASON SAMPLE SIZE DIAGNOSTIC
+print("\n" + "=" * 70)
+print("CURRENT-SEASON SAMPLE SIZE DIAGNOSTIC")
+print("=" * 70)
+
+print("\nHome current-season matches:")
+print(
+    features_v4a_combined["home_current_season_matches"]
+    .value_counts()
+    .sort_index()
+)
+
+print("\nAway current-season matches:")
+print(
+    features_v4a_combined["away_current_season_matches"]
+    .value_counts()
+    .sort_index()
+)
+
+print("\nTest-set sample sizes:")
+
+test_v4a_sample = features_v4a_combined.loc[
+    test_mask_v4a1,
+    [
+        "home_current_season_matches",
+        "away_current_season_matches"
+    ]
+]
+
+print(
+    test_v4a_sample.describe()
+)
+
+
+
+# V4-A.2 — STABILIZED CURRENT-SEASON FEATURES
+# We keep the original V4-A features.
+# These new features stabilize current-season rates by blending
+# them with historical performance.
+
+def add_stabilized_current_season_features(df, prior_strength):
+    result = df.copy()
+
+    # WIN RATE
+    result[f"home_stabilized_win_rate_p{prior_strength}"] = (
+        (
+            result["home_current_season_win_rate"]
+            * result["home_current_season_matches"]
+        )
+        +
+        (
+            result["home_win_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["home_current_season_matches"]
+        + prior_strength
+    )
+
+    result[f"away_stabilized_win_rate_p{prior_strength}"] = (
+        (
+            result["away_current_season_win_rate"]
+            * result["away_current_season_matches"]
+        )
+        +
+        (
+            result["away_win_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["away_current_season_matches"]
+        + prior_strength
+    )
+
+    # DRAW RATE
+    result[f"home_stabilized_draw_rate_p{prior_strength}"] = (
+        (
+            result["home_current_season_draw_rate"]
+            * result["home_current_season_matches"]
+        )
+        +
+        (
+            result["home_draw_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["home_current_season_matches"]
+        + prior_strength
+    )
+
+    result[f"away_stabilized_draw_rate_p{prior_strength}"] = (
+        (
+            result["away_current_season_draw_rate"]
+            * result["away_current_season_matches"]
+        )
+        +
+        (
+            result["away_draw_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["away_current_season_matches"]
+        + prior_strength
+    )
+
+    # RELATIVE STABILIZED EDGES
+    result[
+        f"stabilized_win_rate_edge_p{prior_strength}"
+    ] = (
+        result[f"home_stabilized_win_rate_p{prior_strength}"]
+        -
+        result[f"away_stabilized_win_rate_p{prior_strength}"]
+    )
+
+    result[
+        f"stabilized_draw_rate_edge_p{prior_strength}"
+    ] = (
+        result[f"home_stabilized_draw_rate_p{prior_strength}"]
+        -
+        result[f"away_stabilized_draw_rate_p{prior_strength}"]
+    )
+
+    return result
+
+
+print(
+    [
+        col for col in features_v4a_combined.columns
+        if "draw_rate" in col
+    ]
+)
+
+
+
+print("\n" + "=" * 70)
+print("AVAILABLE HISTORICAL RATE FEATURES")
+print("=" * 70)
+
+for col in features_v4a_combined.columns:
+    if "rate" in col.lower():
+        print(col)
+
+    
+
+
+# V4-A.2 — TRAINING-ONLY PRIORS
+print("\n" + "=" * 70)
+print("V4-A.2 TRAINING-ONLY PRIORS")
+print("=" * 70)
+
+# Use only the original training period.
+# This prevents information from the 431-match test set
+# from influencing the new features.
+
+training_v4a2 = features_v4a_combined.loc[
+    features_v4a_combined["date"] < "2023-11-29"
+].copy()
+
+print("Training rows:", len(training_v4a2))
+
+# HISTORICAL DRAW RATE
+historical_draw_rate = (
+    training_v4a2["result"] == "D"
+).mean()
+
+print(
+    "Historical training draw rate:",
+    f"{historical_draw_rate:.4f}"
+)
+
+# HISTORICAL WIN RATE
+print(
+    "Average home historical win rate:",
+    f"{training_v4a2['home_win_rate'].mean():.4f}"
+)
+
+print(
+    "Average away historical win rate:",
+    f"{training_v4a2['away_win_rate'].mean():.4f}"
+)
+
+# PRIOR STRENGTHS
+print("\nPrior strengths to test:")
+print("✓ 3")
+print("✓ 5")
+print("✓ 8")
+
+
+
+
+# V4-A.2 — BUILD STABILIZED FEATURES
+def add_v4a2_features(df, prior_strength, historical_draw_rate):
+    result = df.copy()
+
+
+    # CURRENT-SEASON WIN RATE — STABILIZED
+    result[f"home_stabilized_win_rate_p{prior_strength}"] = (
+        (
+            result["home_current_season_win_rate"]
+            * result["home_current_season_matches"]
+        )
+        +
+        (
+            result["home_win_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["home_current_season_matches"]
+        + prior_strength
+    )
+
+    result[f"away_stabilized_win_rate_p{prior_strength}"] = (
+        (
+            result["away_current_season_win_rate"]
+            * result["away_current_season_matches"]
+        )
+        +
+        (
+            result["away_win_rate"]
+            * prior_strength
+        )
+    ) / (
+        result["away_current_season_matches"]
+        + prior_strength
+    )
+
+
+    # CURRENT-SEASON DRAW RATE — STABILIZED
+    result[f"home_stabilized_draw_rate_p{prior_strength}"] = (
+        (
+            result["home_current_season_draw_rate"]
+            * result["home_current_season_matches"]
+        )
+        +
+        (
+            historical_draw_rate
+            * prior_strength
+        )
+    ) / (
+        result["home_current_season_matches"]
+        + prior_strength
+    )
+
+    result[f"away_stabilized_draw_rate_p{prior_strength}"] = (
+        (
+            result["away_current_season_draw_rate"]
+            * result["away_current_season_matches"]
+        )
+        +
+        (
+            historical_draw_rate
+            * prior_strength
+        )
+    ) / (
+        result["away_current_season_matches"]
+        + prior_strength
+    )
+
+    # STABILIZED EDGES
+    result[f"stabilized_win_rate_edge_p{prior_strength}"] = (
+        result[f"home_stabilized_win_rate_p{prior_strength}"]
+        -
+        result[f"away_stabilized_win_rate_p{prior_strength}"]
+    )
+
+    result[f"stabilized_draw_rate_edge_p{prior_strength}"] = (
+        result[f"home_stabilized_draw_rate_p{prior_strength}"]
+        -
+        result[f"away_stabilized_draw_rate_p{prior_strength}"]
+    )
+
+    return result
+
+
+
+# CREATE V4-A.2 VARIANTS
+v4a2_datasets = {}
+
+for prior_strength in [3, 5, 8]:
+
+    v4a2_datasets[prior_strength] = add_v4a2_features(
+        features_v4a_combined,
+        prior_strength,
+        historical_draw_rate
+    )
+
+    print(
+        f"✓ V4-A.2 prior strength {prior_strength} created"
+    )
+
+
+
+# V4-A.2 — FEATURE TRANSFORMATION CHECK
+for prior_strength in [3, 5, 8]:
+
+    df = v4a2_datasets[prior_strength]
+
+    print("\n" + "=" * 70)
+    print(
+        f"PRIOR STRENGTH = {prior_strength}"
+    )
+    print("=" * 70)
+
+    print(
+        "Home stabilized win rate:",
+        f"{df[f'home_stabilized_win_rate_p{prior_strength}'].mean():.4f}"
+    )
+
+    print(
+        "Away stabilized win rate:",
+        f"{df[f'away_stabilized_win_rate_p{prior_strength}'].mean():.4f}"
+    )
+
+    print(
+        "Home stabilized draw rate:",
+        f"{df[f'home_stabilized_draw_rate_p{prior_strength}'].mean():.4f}"
+    )
+
+    print(
+        "Away stabilized draw rate:",
+        f"{df[f'away_stabilized_draw_rate_p{prior_strength}'].mean():.4f}"
+    )
+
+
+
+
+# V4-A.2 — TRAIN AND EVALUATE ALL PRIOR STRENGTHS
+v4a2_results = []
+v4a2_predictions = {}
+
+# BASE V4-A FEATURES
+V4A_BASE_FEATURES = [
+    "home_current_season_matches",
+    "away_current_season_matches",
+    "home_current_season_win_rate",
+    "away_current_season_win_rate",
+    "home_current_season_draw_rate",
+    "away_current_season_draw_rate",
+    "home_current_season_goal_difference",
+    "away_current_season_goal_difference",
+    "home_current_season_avg_goals_for",
+    "away_current_season_avg_goals_for",
+    "home_current_season_avg_goals_against",
+    "away_current_season_avg_goals_against",
+    "current_season_win_rate_edge",
+    "current_season_draw_rate_edge",
+    "current_season_goal_difference_edge",
+    "current_season_attack_edge",
+    "current_season_defense_edge",
+]
+
+# TEST EACH PRIOR STRENGTH
+for prior_strength in [3, 5, 8]:
+
+    print("\n" + "=" * 70)
+    print(
+        f"TRAINING V4-A.2 — PRIOR STRENGTH {prior_strength}"
+    )
+    print("=" * 70)
+
+    df = v4a2_datasets[prior_strength]
+
+    stabilized_features = [
+        f"home_stabilized_win_rate_p{prior_strength}",
+        f"away_stabilized_win_rate_p{prior_strength}",
+        f"home_stabilized_draw_rate_p{prior_strength}",
+        f"away_stabilized_draw_rate_p{prior_strength}",
+        f"stabilized_win_rate_edge_p{prior_strength}",
+        f"stabilized_draw_rate_edge_p{prior_strength}",
+    ]
+
+    model_features = (
+        V2_MODEL_FEATURES
+        + V4A_BASE_FEATURES
+        + stabilized_features
+    )
+
+    X = df[model_features]
+    y = df["result"]
+
+    train_mask = df["date"] < "2023-11-29"
+    test_mask = df["date"] >= "2023-11-29"
+
+    X_train = X.loc[train_mask]
+    X_test = X.loc[test_mask]
+
+    y_train = y.loc[train_mask]
+    y_test = y.loc[test_mask]
+
+    print("Features:", len(model_features))
+    print("Train rows:", len(X_train))
+    print("Test rows:", len(X_test))
+
+
+
+    # CATBOOST
+    catboost_model_v2 = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+    calibrated_model =  CalibratedClassifierCV(
+    catboost_model_v2,
+    cv=TimeSeriesSplit(n_splits=5),
+    method="sigmoid",
+    ensemble=True
+)
+
+    calibrated_model.fit(
+        X_train,
+        y_train
+    )
+
+    probabilities = calibrated_model.predict_proba(
+        X_test
+    )
+
+    predictions = calibrated_model.predict(
+        X_test
+    )
+
+    classes = calibrated_model.classes_
+
+
+
+    # METRICS
+    accuracy = accuracy_score(
+        y_test,
+        predictions
+    )
+
+    logloss = log_loss(
+        y_test,
+        probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    brier = multiclass_brier(
+        y_test,
+        probabilities,
+        ["A", "D", "H"]
+    )
+
+
+
+    # STORE
+    v4a2_results.append({
+        "prior_strength": prior_strength,
+        "features": len(model_features),
+        "accuracy": accuracy,
+        "log_loss": logloss,
+        "brier": brier,
+        "normalized_brier": brier / 3,
+        "predicted_draws": int(
+            np.sum(predictions == "D")
+        ),
+        "mean_draw_probability": probabilities[
+            :, classes.tolist().index("D")
+        ].mean(),
+    })
+
+    v4a2_predictions[prior_strength] = {
+        "model": calibrated_model,
+        "predictions": predictions,
+        "probabilities": probabilities,
+        "classes": classes,
+        "y_test": y_test.copy(),
+        "test_df": df.loc[test_mask].copy(),
+        "features": model_features,
+    }
+
+    print(
+        "Accuracy:",
+        f"{accuracy:.4f}"
+    )
+
+    print(
+        "Log Loss:",
+        f"{logloss:.4f}"
+    )
+
+    print(
+        "Brier:",
+        f"{brier:.4f}"
+    )
+
+    print(
+        "Normalized Brier:",
+        f"{brier / 3:.4f}"
+    )
+
+    print(
+        "Predicted Draws:",
+        int(np.sum(predictions == "D"))
+    )
+
+    print(
+        "Mean Draw Probability:",
+        f"{probabilities[:, classes.tolist().index('D')].mean():.4f}"
+    )
+
+
+
+# V4-A.2 — COMPARISON
+v4a2_results_df = pd.DataFrame(v4a2_results)
+
+print("\n" + "=" * 70)
+print("V4-A.2 PRIOR COMPARISON")
+print("=" * 70)
+
+print(
+    v4a2_results_df.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+
+
+
+# V4-A.2 — SEASON-LEVEL ROBUSTNESS COMPARISON
+# V2 predictions
+v2_prediction_df = test_df_v2[
+    ["season", "date", "home_team", "away_team", "result"]
+].copy()
+
+v2_prediction_df["v2_prediction"] = np.array(v2_cb_pred)
+
+v2_prediction_df["v2_prob_A"] = v2_cb_prob[
+    :, v2_cb_classes.tolist().index("A")
+]
+
+v2_prediction_df["v2_prob_D"] = v2_cb_prob[
+    :, v2_cb_classes.tolist().index("D")
+]
+
+v2_prediction_df["v2_prob_H"] = v2_cb_prob[
+    :, v2_cb_classes.tolist().index("H")
+]
+
+
+# V4-A.2 predictions
+match_keys = [
+    "season",
+    "date",
+    "home_team",
+    "away_team"
+]
+
+v4a2_comparison_list = []
+
+for prior_strength, prediction_data in v4a2_predictions.items():
+
+    temp = prediction_data["test_df"][
+        match_keys + ["result"]
+    ].copy()
+
+    temp["v4a2_prediction"] = np.array(
+        prediction_data["predictions"]
+    )
+
+    classes = prediction_data["classes"]
+    probabilities = prediction_data["probabilities"]
+
+    temp["v4a2_prob_A"] = probabilities[
+        :, classes.tolist().index("A")
+    ]
+
+    temp["v4a2_prob_D"] = probabilities[
+        :, classes.tolist().index("D")
+    ]
+
+    temp["v4a2_prob_H"] = probabilities[
+        :, classes.tolist().index("H")
+    ]
+
+    temp["prior_strength"] = prior_strength
+
+    v4a2_comparison_list.append(temp)
+
+
+# ALIGN V2 WITH EACH V4-A.2 VERSION
+season_results = []
+
+for v4a2_df in v4a2_comparison_list:
+
+    prior_strength = v4a2_df["prior_strength"].iloc[0]
+
+    aligned = v2_prediction_df.merge(
+        v4a2_df[
+            match_keys
+            + [
+                "v4a2_prediction",
+                "v4a2_prob_A",
+                "v4a2_prob_D",
+                "v4a2_prob_H"
+            ]
+        ],
+        on=match_keys,
+        how="inner",
+        validate="one_to_one"
+    )
+
+    print(
+        f"\nPrior strength {prior_strength}: "
+        f"{len(aligned)} aligned matches"
+    )
+
+    for season in sorted(aligned["season"].unique()):
+
+        season_df = aligned[
+            aligned["season"] == season
+        ].copy()
+
+        y_true = season_df["result"]
+
+        v2_pred = season_df["v2_prediction"]
+
+        v4a2_pred = season_df["v4a2_prediction"]
+
+        v2_prob = season_df[
+            ["v2_prob_A", "v2_prob_D", "v2_prob_H"]
+        ].values
+
+        v4a2_prob = season_df[
+            ["v4a2_prob_A", "v4a2_prob_D", "v4a2_prob_H"]
+        ].values
+
+        v2_accuracy = accuracy_score(
+            y_true,
+            v2_pred
+        )
+
+        v4a2_accuracy = accuracy_score(
+            y_true,
+            v4a2_pred
+        )
+
+        v2_logloss = log_loss(
+            y_true,
+            v2_prob,
+            labels=["A", "D", "H"]
+        )
+
+        v4a2_logloss = log_loss(
+            y_true,
+            v4a2_prob,
+            labels=["A", "D", "H"]
+        )
+
+        v2_brier = multiclass_brier(
+            y_true,
+            v2_prob,
+            ["A", "D", "H"]
+        )
+
+        v4a2_brier = multiclass_brier(
+            y_true,
+            v4a2_prob,
+            ["A", "D", "H"]
+        )
+
+        season_results.append({
+            "prior_strength": prior_strength,
+            "season": season,
+            "matches": len(season_df),
+
+            "v2_accuracy": v2_accuracy,
+            "v4a2_accuracy": v4a2_accuracy,
+            "accuracy_change": (
+                v4a2_accuracy - v2_accuracy
+            ),
+
+            "v2_log_loss": v2_logloss,
+            "v4a2_log_loss": v4a2_logloss,
+            "log_loss_change": (
+                v4a2_logloss - v2_logloss
+            ),
+
+            "v2_brier": v2_brier,
+            "v4a2_brier": v4a2_brier,
+            "brier_change": (
+                v4a2_brier - v2_brier
+            ),
+
+            "v4a2_predicted_draws": int(
+                np.sum(v4a2_pred == "D")
+            )
+        })
+
+
+# DISPLAY RESULTS
+v4a2_season_results_df = pd.DataFrame(
+    season_results
+)
+
+print("\n" + "=" * 90)
+print("V4-A.2 — SEASON ROBUSTNESS")
+print("=" * 90)
+
+print(
+    v4a2_season_results_df.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+
+
+
+# V4-A.2 — SAMPLE SIZE ROBUSTNESS ANALYSIS
+# We will analyze the best current version: prior strength 8
+
+prior_strength = 8
+
+v4a2_data = v4a2_predictions[prior_strength]
+
+v4a2_test = v4a2_data["test_df"].copy()
+
+v4a2_test["v4a2_prediction"] = np.array(
+    v4a2_data["predictions"]
+)
+
+v4a2_probabilities = v4a2_data["probabilities"]
+v4a2_classes = v4a2_data["classes"]
+
+v4a2_test["v4a2_prob_A"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("A")
+]
+
+v4a2_test["v4a2_prob_D"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("D")
+]
+
+v4a2_test["v4a2_prob_H"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("H")
+]
+
+
+
+# ADD CURRENT-SEASON SAMPLE SIZE
+v4a2_test["combined_current_matches"] = (
+    v4a2_test["home_current_season_matches"]
+    +
+    v4a2_test["away_current_season_matches"]
+)
+
+
+
+# CREATE SAMPLE-SIZE GROUPS
+def sample_size_group(value):
+
+    if value <= 2:
+        return "0-2"
+
+    elif value <= 5:
+        return "3-5"
+
+    elif value <= 8:
+        return "6-8"
+
+    else:
+        return "9+"
+
+
+v4a2_test["sample_size_group"] = (
+    v4a2_test["combined_current_matches"]
+    .apply(sample_size_group)
+)
+
+
+
+# SAMPLE-SIZE PERFORMANCE
+sample_size_results = []
+
+for group in ["0-2", "3-5", "6-8", "9+"]:
+
+    group_df = v4a2_test[
+        v4a2_test["sample_size_group"] == group
+    ].copy()
+
+    if len(group_df) == 0:
+        continue
+
+    y_true = group_df["result"]
+
+    predictions = group_df[
+        "v4a2_prediction"
+    ]
+
+    probabilities = group_df[
+        [
+            "v4a2_prob_A",
+            "v4a2_prob_D",
+            "v4a2_prob_H"
+        ]
+    ].values
+
+    accuracy = accuracy_score(
+        y_true,
+        predictions
+    )
+
+    logloss = log_loss(
+        y_true,
+        probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    brier = multiclass_brier(
+        y_true,
+        probabilities,
+        ["A", "D", "H"]
+    )
+
+    sample_size_results.append({
+        "sample_size_group": group,
+        "matches": len(group_df),
+        "accuracy": accuracy,
+        "log_loss": logloss,
+        "brier": brier,
+        "mean_draw_probability": group_df[
+            "v4a2_prob_D"
+        ].mean(),
+        "predicted_draws": int(
+            np.sum(predictions == "D")
+        )
+    })
+
+
+
+# DISPLAY
+sample_size_results_df = pd.DataFrame(
+    sample_size_results
+)
+
+print("\n" + "=" * 90)
+print("V4-A.2 — CURRENT-SEASON SAMPLE SIZE ANALYSIS")
+print("=" * 90)
+
+print(
+    sample_size_results_df.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
 )
