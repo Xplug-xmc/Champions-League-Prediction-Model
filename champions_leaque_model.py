@@ -7,9 +7,12 @@ import joblib
 import uuid
 from pathlib import Path
 from collections import deque
+import matplotlib.pyplot as plt
+
 
 from sklearn.metrics import confusion_matrix
 from sklearn.pipeline import Pipeline
+from sklearn.calibration import calibration_curve
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelEncoder
 from sklearn.calibration import CalibratedClassifierCV
@@ -11784,13 +11787,11 @@ v4c_brier = np.mean(
 )
 
 
-# ------------------------------------------------------------
 # IMPORTANT:
 # Keep the same normalized Brier definition used
 # throughout the project.
 #
 # 3 outcome classes = A, D, H
-# ------------------------------------------------------------
 
 v4c_normalized_brier = (
     v4c_brier
@@ -11969,3 +11970,1830 @@ print(
     f"\nSaved V4-C tuning results to:\n"
     f"{v4c_output_path}"
 )
+
+
+
+
+# V4-D — Multiclass Temperature Calibration
+# V4-D.1 — Temperature Scaling Function
+def apply_temperature_scaling(probabilities, temperature):
+
+    # Prevent log(0)
+    probabilities = np.clip(
+        probabilities,
+        1e-15,
+        1.0
+    )
+
+    # Convert probabilities to log-probabilities
+    log_probabilities = np.log(
+        probabilities
+    )
+
+    # Apply temperature
+    scaled_logits = (
+        log_probabilities
+        /
+        temperature
+    )
+
+    # Stabilize exponentials
+    scaled_logits = (
+        scaled_logits
+        -
+        np.max(
+            scaled_logits,
+            axis=1,
+            keepdims=True
+        )
+    )
+
+    # Convert back to probabilities
+    exp_values = np.exp(
+        scaled_logits
+    )
+
+    calibrated_probabilities = (
+        exp_values
+        /
+        exp_values.sum(
+            axis=1,
+            keepdims=True
+        )
+    )
+
+    return calibrated_probabilities
+
+
+
+# V4-D.2 — Candidate Temperatures
+candidate_temperatures = [
+    0.50,
+    0.60,
+    0.70,
+    0.80,
+    0.90,
+    1.00,
+    1.10,
+    1.20,
+    1.30,
+    1.40,
+    1.50,
+    1.75,
+    2.00
+]
+
+
+
+# V4-D.3 — Tune Temperature Using ONLY OOF Predictions
+v4d_tuning_results = []
+
+for temperature in candidate_temperatures:
+
+    calibrated_oof_probabilities = (
+        apply_temperature_scaling(
+            oof_probabilities,
+            temperature
+        )
+    )
+
+    oof_predictions = v4c_classes[
+        np.argmax(
+            calibrated_oof_probabilities,
+            axis=1
+        )
+    ]
+
+    accuracy = accuracy_score(
+        oof_y,
+        oof_predictions
+    )
+
+    logloss = log_loss(
+        oof_y,
+        calibrated_oof_probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    oof_one_hot = (
+        pd.get_dummies(
+            oof_y
+        )
+        .reindex(
+            columns=["A", "D", "H"],
+            fill_value=0
+        )
+        .values
+    )
+
+    brier = np.mean(
+        np.sum(
+            (
+                oof_one_hot
+                -
+                calibrated_oof_probabilities
+            ) ** 2,
+            axis=1
+        )
+    )
+
+    predicted_draws = np.sum(
+        oof_predictions == "D"
+    )
+
+    mean_draw_probability = (
+        calibrated_oof_probabilities[
+            :, draw_index
+        ].mean()
+    )
+
+    v4d_tuning_results.append({
+
+        "temperature": temperature,
+
+        "accuracy": accuracy,
+
+        "log_loss": logloss,
+
+        "brier": brier,
+
+        "predicted_draws": predicted_draws,
+
+        "mean_draw_probability":
+            mean_draw_probability
+    })
+
+
+v4d_tuning_df = pd.DataFrame(
+    v4d_tuning_results
+)
+
+
+print("\nV4-D OOF temperature tuning results:")
+
+print(
+    v4d_tuning_df.to_string(
+        index=False
+    )
+)
+
+
+
+# V4-D.4 — Select Best Temperature
+best_v4d_row = (
+    v4d_tuning_df
+    .sort_values(
+        [
+            "log_loss",
+            "brier"
+        ]
+    )
+    .iloc[0]
+)
+
+best_temperature = float(
+    best_v4d_row["temperature"]
+)
+
+
+print(
+    f"\nSelected temperature: "
+    f"{best_temperature:.2f}"
+)
+
+print(
+    "Selection based on OOF Log Loss "
+    "(Brier used as secondary metric)."
+)
+
+
+
+# V4-D.5 — Apply Temperature to Untouched Test Set
+base_v4d_test_probabilities = (
+    v4a2_predictions[8]["probabilities"]
+)
+
+
+v4d_test_probabilities = (
+    apply_temperature_scaling(
+        base_v4d_test_probabilities,
+        best_temperature
+    )
+)
+
+
+v4d_test_predictions = v4c_classes[
+    np.argmax(
+        v4d_test_probabilities,
+        axis=1
+    )
+]
+
+
+
+# V4-D.6 — Test Metrics
+v4d_accuracy = accuracy_score(
+    y_test_v4c,
+    v4d_test_predictions
+)
+
+
+v4d_logloss = log_loss(
+    y_test_v4c,
+    v4d_test_probabilities,
+    labels=["A", "D", "H"]
+)
+
+
+
+# Multiclass Brier Score
+v4d_brier = np.mean(
+    np.sum(
+        (
+            actual_test_one_hot
+            -
+            v4d_test_probabilities
+        ) ** 2,
+        axis=1
+    )
+)
+
+
+
+# Normalized Brier
+#
+# Same project definition:
+# Brier / 3 outcome classes
+v4d_normalized_brier = (
+    v4d_brier
+    /
+    len(v4c_classes)
+)
+
+
+
+
+# Draw diagnostics
+v4d_predicted_draws = np.sum(
+    v4d_test_predictions == "D"
+)
+
+v4d_mean_draw_probability = (
+    v4d_test_probabilities[
+        :, draw_index
+    ].mean()
+)
+
+
+print("\n" + "=" * 60)
+print("V4-D TEST RESULTS")
+print("=" * 60)
+
+print(
+    f"Selected temperature: "
+    f"{best_temperature:.2f}"
+)
+
+print(
+    f"Accuracy:           "
+    f"{v4d_accuracy:.4f}"
+)
+
+print(
+    f"Log Loss:           "
+    f"{v4d_logloss:.4f}"
+)
+
+print(
+    f"Brier Score:        "
+    f"{v4d_brier:.4f}"
+)
+
+print(
+    f"Normalized Brier:   "
+    f"{v4d_normalized_brier:.4f}"
+)
+
+print(
+    f"Predicted Draws:    "
+    f"{v4d_predicted_draws}"
+)
+
+print(
+    f"Mean Draw Prob:     "
+    f"{v4d_mean_draw_probability:.4f}"
+)
+
+
+
+# V4-D.7 — Compare V4-A.2, V4-C and V4-D
+v4d_comparison = pd.DataFrame({
+
+    "model": [
+        "V4-A.2 p=8",
+        "V4-C",
+        "V4-D"
+    ],
+
+    "accuracy": [
+
+        v4a2_accuracy,
+
+        v4c_accuracy,
+
+        v4d_accuracy
+    ],
+
+    "log_loss": [
+
+        v4a2_logloss,
+
+        v4c_logloss,
+
+        v4d_logloss
+    ],
+
+    "brier": [
+
+        v4a2_brier,
+
+        v4c_brier,
+
+        v4d_brier
+    ],
+
+    "normalized_brier": [
+
+        v4a2_normalized_brier,
+
+        v4c_normalized_brier,
+
+        v4d_normalized_brier
+    ],
+
+    "predicted_draws": [
+
+        np.sum(
+            v4a2_baseline_predictions == "D"
+        ),
+
+        v4c_predicted_draws,
+
+        v4d_predicted_draws
+    ],
+
+    "mean_draw_probability": [
+
+        v4a2_baseline_probabilities[
+            :, draw_index
+        ].mean(),
+
+        v4c_mean_draw_probability,
+
+        v4d_mean_draw_probability
+    ]
+})
+
+
+print(
+    "\nV4-A.2 vs V4-C vs V4-D:"
+)
+
+print(
+    v4d_comparison.to_string(
+        index=False
+    )
+)
+
+
+
+# V4-D.8 — Save Temperature Tuning Results
+v4d_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_d_temperature_calibration.csv"
+)
+
+
+v4d_tuning_df.to_csv(
+    v4d_output_path,
+    index=False
+)
+
+
+print(
+    f"\nSaved V4-D tuning results to:\n"
+    f"{v4d_output_path}"
+)
+
+
+
+
+
+# V4-D ROBUSTNESS CHECK
+# Compare V4-A.2, V4-C and V4-D by season
+# 1. BUILD V4-D TEST DATA WITH EXACT FIXTURE KEYS
+v4d_test_meta = v4c_data.loc[
+    test_mask,
+    ["season", "date", "home_team", "away_team", "result"]
+].reset_index(drop=True)
+
+
+v4d_test_df = v4d_test_meta.copy()
+
+v4d_test_df["v4d_prediction"] = np.array(v4d_test_predictions)
+
+v4d_test_df["v4d_prob_A"] = v4d_test_probabilities[
+    :, list(v4c_classes).index("A")
+]
+
+v4d_test_df["v4d_prob_D"] = v4d_test_probabilities[
+    :, list(v4c_classes).index("D")
+]
+
+v4d_test_df["v4d_prob_H"] = v4d_test_probabilities[
+    :, list(v4c_classes).index("H")
+]
+
+
+
+# 2. BUILD V4-C TEST DATA
+v4c_test_df = v4d_test_meta.copy()
+
+v4c_test_df["v4c_prediction"] = np.array(v4c_test_predictions)
+
+v4c_test_df["v4c_prob_A"] = v4c_test_probabilities[
+    :, list(v4c_classes).index("A")
+]
+
+v4c_test_df["v4c_prob_D"] = v4c_test_probabilities[
+    :, list(v4c_classes).index("D")
+]
+
+v4c_test_df["v4c_prob_H"] = v4c_test_probabilities[
+    :, list(v4c_classes).index("H")
+]
+
+
+
+# 3. BUILD V4-A.2 TEST DATA
+v4a2_test_source = v4a2_predictions[8]["test_df"].copy()
+
+v4a2_test_df = v4a2_test_source[
+    ["season", "date", "home_team", "away_team", "result"]
+].copy()
+
+v4a2_test_df["v4a2_prediction"] = np.array(
+    v4a2_predictions[8]["predictions"]
+)
+
+v4a2_test_probabilities = np.array(
+    v4a2_predictions[8]["probabilities"]
+)
+
+v4a2_classes = np.array(
+    v4a2_predictions[8]["classes"]
+)
+
+v4a2_test_df["v4a2_prob_A"] = v4a2_test_probabilities[
+    :, list(v4a2_classes).index("A")
+]
+
+v4a2_test_df["v4a2_prob_D"] = v4a2_test_probabilities[
+    :, list(v4a2_classes).index("D")
+]
+
+v4a2_test_df["v4a2_prob_H"] = v4a2_test_probabilities[
+    :, list(v4a2_classes).index("H")
+]
+
+
+
+# 4. ALIGN ALL MODELS BY EXACT FIXTURE
+match_keys = [
+    "season",
+    "date",
+    "home_team",
+    "away_team"
+]
+
+
+aligned = v4a2_test_df.merge(
+    v4c_test_df[
+        match_keys +
+        [
+            "v4c_prediction",
+            "v4c_prob_A",
+            "v4c_prob_D",
+            "v4c_prob_H"
+        ]
+    ],
+    on=match_keys,
+    how="inner",
+    validate="one_to_one"
+)
+
+aligned = aligned.merge(
+    v4d_test_df[
+        match_keys +
+        [
+            "v4d_prediction",
+            "v4d_prob_A",
+            "v4d_prob_D",
+            "v4d_prob_H"
+        ]
+    ],
+    on=match_keys,
+    how="inner",
+    validate="one_to_one"
+)
+
+
+print("Aligned rows:", len(aligned))
+print("Unique fixtures:", aligned[match_keys].drop_duplicates().shape[0])
+
+
+
+# 5. SEASON METRIC FUNCTION
+def calculate_season_metrics(
+    df,
+    prediction_column,
+    probability_columns
+):
+
+    results = []
+
+    labels = ["A", "D", "H"]
+
+    for season, group in df.groupby("season", sort=True):
+
+        y_true = group["result"].to_numpy()
+
+        y_pred = group[prediction_column].to_numpy()
+
+        probabilities = group[
+            probability_columns
+        ].to_numpy()
+
+        accuracy = accuracy_score(
+            y_true,
+            y_pred
+        )
+
+        logloss = log_loss(
+            y_true,
+            probabilities,
+            labels=labels
+        )
+
+        # Convert actual results to one-hot
+        y_one_hot = np.zeros_like(
+            probabilities
+        )
+
+        for i, result in enumerate(y_true):
+            class_index = labels.index(result)
+            y_one_hot[i, class_index] = 1
+
+        brier = np.mean(
+            np.sum(
+                (y_one_hot - probabilities) ** 2,
+                axis=1
+            )
+        )
+
+        normalized_brier = brier / 3
+
+        results.append({
+            "season": season,
+            "matches": len(group),
+            "accuracy": accuracy,
+            "log_loss": logloss,
+            "brier": brier,
+            "normalized_brier": normalized_brier
+        })
+
+    return pd.DataFrame(results)
+
+
+
+# 6. CALCULATE RESULTS
+v4a2_season = calculate_season_metrics(
+    aligned,
+    "v4a2_prediction",
+    [
+        "v4a2_prob_A",
+        "v4a2_prob_D",
+        "v4a2_prob_H"
+    ]
+)
+
+v4c_season = calculate_season_metrics(
+    aligned,
+    "v4c_prediction",
+    [
+        "v4c_prob_A",
+        "v4c_prob_D",
+        "v4c_prob_H"
+    ]
+)
+
+v4d_season = calculate_season_metrics(
+    aligned,
+    "v4d_prediction",
+    [
+        "v4d_prob_A",
+        "v4d_prob_D",
+        "v4d_prob_H"
+    ]
+)
+
+
+
+# 7. COMBINE INTO ONE COMPARISON TABLE
+comparison = v4a2_season.merge(
+    v4c_season,
+    on=["season", "matches"],
+    suffixes=("_v4a2", "_v4c")
+)
+
+comparison = comparison.merge(
+    v4d_season,
+    on=["season", "matches"]
+)
+
+comparison = comparison.rename(columns={
+    "accuracy": "accuracy_v4d",
+    "log_loss": "log_loss_v4d",
+    "brier": "brier_v4d",
+    "normalized_brier": "normalized_brier_v4d"
+})
+
+
+
+# 8. CALCULATE V4-D IMPROVEMENT VS V4-A.2
+comparison["accuracy_change_v4d"] = (
+    comparison["accuracy_v4d"]
+    - comparison["accuracy_v4a2"]
+)
+
+comparison["log_loss_change_v4d"] = (
+    comparison["log_loss_v4d"]
+    - comparison["log_loss_v4a2"]
+)
+
+comparison["brier_change_v4d"] = (
+    comparison["brier_v4d"]
+    - comparison["brier_v4a2"]
+)
+
+
+
+# 9. DISPLAY
+print("\n" + "=" * 80)
+print("V4-D SEASON ROBUSTNESS")
+print("=" * 80)
+
+print(
+    comparison[
+        [
+            "season",
+            "matches",
+
+            "accuracy_v4a2",
+            "accuracy_v4c",
+            "accuracy_v4d",
+            "accuracy_change_v4d",
+
+            "log_loss_v4a2",
+            "log_loss_v4c",
+            "log_loss_v4d",
+            "log_loss_change_v4d",
+
+            "brier_v4a2",
+            "brier_v4c",
+            "brier_v4d",
+            "brier_change_v4d"
+        ]
+    ].to_string(index=False)
+)
+
+
+
+# 10. CHECK WHICH SEASONS IMPROVED
+print("\n" + "=" * 80)
+print("V4-D VS V4-A.2")
+print("=" * 80)
+
+print(
+    "\nAccuracy changes:"
+)
+
+print(
+    comparison[
+        [
+            "season",
+            "accuracy_change_v4d"
+        ]
+    ].to_string(index=False)
+)
+
+
+print(
+    "\nLog Loss changes:"
+)
+
+print(
+    comparison[
+        [
+            "season",
+            "log_loss_change_v4d"
+        ]
+    ].to_string(index=False)
+)
+
+
+print(
+    "\nBrier changes:"
+)
+
+print(
+    comparison[
+        [
+            "season",
+            "brier_change_v4d"
+        ]
+    ].to_string(index=False)
+)
+
+
+
+# 11. SAVE ROBUSTNESS RESULTS
+output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_d_robustness_by_season.csv"
+)
+
+comparison.to_csv(
+    output_path,
+    index=False
+)
+
+print("\nSaved:")
+print(output_path)
+
+
+
+
+
+
+# V4-E CALIBRATION CURVE ANALYSIS
+# Compare V4-A.2, V4-C and V4-D
+# 1. PREPARE ACTUAL OUTCOME FLAGS
+calibration_df = aligned.copy()
+
+calibration_df["actual_H"] = (
+    calibration_df["result"] == "H"
+).astype(int)
+
+calibration_df["actual_D"] = (
+    calibration_df["result"] == "D"
+).astype(int)
+
+calibration_df["actual_A"] = (
+    calibration_df["result"] == "A"
+).astype(int)
+
+
+
+# 2. CALCULATE CALIBRATION BY OUTCOME
+def calculate_calibration(
+    df,
+    probability_column,
+    actual_column,
+    model_name,
+    outcome,
+    n_bins=10
+):
+
+    actual = df[actual_column].to_numpy()
+    probabilities = df[probability_column].to_numpy()
+
+    fraction_positive, mean_predicted = calibration_curve(
+        actual,
+        probabilities,
+        n_bins=n_bins,
+        strategy="uniform"
+    )
+
+    rows = []
+
+    for i, (predicted, observed) in enumerate(
+        zip(mean_predicted, fraction_positive),
+        start=1
+    ):
+
+        # Identify the observations belonging to this bin
+        lower = (i - 1) / n_bins
+        upper = i / n_bins
+
+        if i == n_bins:
+            mask = (
+                (probabilities >= lower) &
+                (probabilities <= upper)
+            )
+        else:
+            mask = (
+                (probabilities >= lower) &
+                (probabilities < upper)
+            )
+
+        count = mask.sum()
+
+        rows.append({
+            "model": model_name,
+            "outcome": outcome,
+            "bin": i,
+            "probability_range": f"{lower:.0%}-{upper:.0%}",
+            "sample_count": int(count),
+            "mean_predicted_probability": predicted,
+            "actual_frequency": observed,
+            "calibration_error": observed - predicted,
+            "absolute_calibration_error": abs(
+                observed - predicted
+            )
+        })
+
+    return pd.DataFrame(rows)
+
+
+
+# 3. V4-A.2 CALIBRATION
+calibration_results = []
+
+for probability_column, actual_column, outcome in [
+    ("v4a2_prob_H", "actual_H", "Home"),
+    ("v4a2_prob_D", "actual_D", "Draw"),
+    ("v4a2_prob_A", "actual_A", "Away"),
+]:
+
+    calibration_results.append(
+        calculate_calibration(
+            calibration_df,
+            probability_column,
+            actual_column,
+            "V4-A.2",
+            outcome
+        )
+    )
+
+
+
+# 4. V4-C CALIBRATION
+for probability_column, actual_column, outcome in [
+    ("v4c_prob_H", "actual_H", "Home"),
+    ("v4c_prob_D", "actual_D", "Draw"),
+    ("v4c_prob_A", "actual_A", "Away"),
+]:
+
+    calibration_results.append(
+        calculate_calibration(
+            calibration_df,
+            probability_column,
+            actual_column,
+            "V4-C",
+            outcome
+        )
+    )
+
+
+
+# 5. V4-D CALIBRATION
+for probability_column, actual_column, outcome in [
+    ("v4d_prob_H", "actual_H", "Home"),
+    ("v4d_prob_D", "actual_D", "Draw"),
+    ("v4d_prob_A", "actual_A", "Away"),
+]:
+
+    calibration_results.append(
+        calculate_calibration(
+            calibration_df,
+            probability_column,
+            actual_column,
+            "V4-D",
+            outcome
+        )
+    )
+
+
+
+# 6. COMBINE RESULTS
+calibration_results_df = pd.concat(
+    calibration_results,
+    ignore_index=True
+)
+
+
+
+# 7. DISPLAY FULL CALIBRATION TABLE
+print("\n" + "=" * 100)
+print("V4-E CALIBRATION RESULTS")
+print("=" * 100)
+
+print(
+    calibration_results_df.to_string(
+        index=False
+    )
+)
+
+
+
+# 8. CALCULATE OVERALL CALIBRATION ERROR
+summary = (
+    calibration_results_df
+    .groupby(["model", "outcome"], as_index=False)
+    .agg(
+        mean_absolute_calibration_error=(
+            "absolute_calibration_error",
+            "mean"
+        ),
+        total_samples=(
+            "sample_count",
+            "sum"
+        )
+    )
+)
+
+
+print("\n" + "=" * 100)
+print("CALIBRATION ERROR SUMMARY")
+print("=" * 100)
+
+print(
+    summary.to_string(
+        index=False
+    )
+)
+
+
+
+# 9. SAVE RESULTS
+output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_e_calibration_analysis.csv"
+)
+
+calibration_results_df.to_csv(
+    output_path,
+    index=False
+)
+
+print("\nSaved calibration analysis to:")
+print(output_path)
+
+
+
+
+# V4-F RELIABILITY CURVES
+# 1. WEIGHTED CALIBRATION ERROR
+def weighted_calibration_error(
+    calibration_df,
+    model,
+    outcome
+):
+
+    subset = calibration_df[
+        (calibration_df["model"] == model) &
+        (calibration_df["outcome"] == outcome)
+    ].copy()
+
+    subset = subset[
+        subset["sample_count"] > 0
+    ]
+
+    total_samples = subset["sample_count"].sum()
+
+    weighted_error = (
+        subset["absolute_calibration_error"]
+        * subset["sample_count"]
+    ).sum() / total_samples
+
+    return weighted_error
+
+
+# 2. CALCULATE WEIGHTED ERRORS
+weighted_results = []
+
+for model in ["V4-A.2", "V4-C", "V4-D"]:
+
+    for outcome in ["Home", "Draw", "Away"]:
+
+        error = weighted_calibration_error(
+            calibration_results_df,
+            model,
+            outcome
+        )
+
+        weighted_results.append({
+            "model": model,
+            "outcome": outcome,
+            "weighted_calibration_error": error
+        })
+
+
+weighted_error_df = pd.DataFrame(
+    weighted_results
+)
+
+
+print("\n" + "=" * 80)
+print("WEIGHTED CALIBRATION ERROR")
+print("=" * 80)
+
+print(
+    weighted_error_df.to_string(
+        index=False
+    )
+)
+
+
+# 3. RELIABILITY CURVE FUNCTION
+def plot_reliability(
+    calibration_df,
+    outcome
+):
+
+    plt.figure(
+        figsize=(8, 6)
+    )
+
+    # Ideal calibration line
+    plt.plot(
+        [0, 1],
+        [0, 1],
+        linestyle="--",
+        label="Perfect calibration"
+    )
+
+    for model in ["V4-A.2", "V4-C", "V4-D"]:
+
+        subset = calibration_df[
+            (calibration_df["model"] == model) &
+            (calibration_df["outcome"] == outcome) &
+            (calibration_df["sample_count"] > 0)
+        ].copy()
+
+        plt.plot(
+            subset["mean_predicted_probability"],
+            subset["actual_frequency"],
+            marker="o",
+            label=model
+        )
+
+    plt.xlabel(
+        "Mean Predicted Probability"
+    )
+
+    plt.ylabel(
+        "Observed Frequency"
+    )
+
+    plt.title(
+        f"{outcome} Outcome Reliability Curve"
+    )
+
+    plt.legend()
+
+    plt.grid(
+        alpha=0.3
+    )
+
+    plt.tight_layout()
+
+    plt.show()
+
+
+# 4. HOME
+plot_reliability(
+    calibration_results_df,
+    "Home"
+)
+
+
+# 5. DRAW
+plot_reliability(
+    calibration_results_df,
+    "Draw"
+)
+
+
+# 6. AWAY
+plot_reliability(
+    calibration_results_df,
+    "Away"
+)
+
+
+
+# 7. SAVE WEIGHTED RESULTS
+weighted_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_f_weighted_calibration.csv"
+)
+
+weighted_error_df.to_csv(
+    weighted_output_path,
+    index=False
+)
+
+print("\nSaved weighted calibration results to:")
+print(weighted_output_path)
+
+
+
+# V4-F.1 CORRECTED CALIBRATION DIAGNOSTICS
+# 1. MANUAL CALIBRATION BIN FUNCTION
+def manual_calibration_bins(
+    df,
+    probability_column,
+    actual_column,
+    model_name,
+    outcome,
+    n_bins=10
+):
+
+    probabilities = df[probability_column].to_numpy()
+    actual = df[actual_column].to_numpy()
+
+    rows = []
+
+    bin_edges = np.linspace(
+        0,
+        1,
+        n_bins + 1
+    )
+
+    for i in range(n_bins):
+
+        lower = bin_edges[i]
+        upper = bin_edges[i + 1]
+
+        if i == n_bins - 1:
+
+            mask = (
+                (probabilities >= lower) &
+                (probabilities <= upper)
+            )
+
+        else:
+
+            mask = (
+                (probabilities >= lower) &
+                (probabilities < upper)
+            )
+
+        count = mask.sum()
+
+        if count == 0:
+            continue
+
+        mean_probability = probabilities[mask].mean()
+        observed_frequency = actual[mask].mean()
+
+        calibration_error = (
+            observed_frequency -
+            mean_probability
+        )
+
+        absolute_error = abs(
+            calibration_error
+        )
+
+        weighted_error = (
+            absolute_error *
+            count
+        )
+
+        rows.append({
+            "model": model_name,
+            "outcome": outcome,
+            "bin": i + 1,
+            "probability_range": (
+                f"{lower:.0%}-{upper:.0%}"
+            ),
+            "sample_count": int(count),
+            "mean_predicted_probability": (
+                mean_probability
+            ),
+            "actual_frequency": (
+                observed_frequency
+            ),
+            "calibration_error": (
+                calibration_error
+            ),
+            "absolute_calibration_error": (
+                absolute_error
+            ),
+            "weighted_error": (
+                weighted_error
+            )
+        })
+
+    return pd.DataFrame(rows)
+
+
+# 2. BUILD CORRECTED CALIBRATION RESULTS
+corrected_results = []
+
+model_probability_map = {
+
+    "V4-A.2": {
+        "Home": ("v4a2_prob_H", "actual_H"),
+        "Draw": ("v4a2_prob_D", "actual_D"),
+        "Away": ("v4a2_prob_A", "actual_A"),
+    },
+
+    "V4-C": {
+        "Home": ("v4c_prob_H", "actual_H"),
+        "Draw": ("v4c_prob_D", "actual_D"),
+        "Away": ("v4c_prob_A", "actual_A"),
+    },
+
+    "V4-D": {
+        "Home": ("v4d_prob_H", "actual_H"),
+        "Draw": ("v4d_prob_D", "actual_D"),
+        "Away": ("v4d_prob_A", "actual_A"),
+    }
+}
+
+
+for model, outcomes in model_probability_map.items():
+
+    for outcome, (
+        probability_column,
+        actual_column
+    ) in outcomes.items():
+
+        result = manual_calibration_bins(
+            calibration_df,
+            probability_column,
+            actual_column,
+            model,
+            outcome,
+            n_bins=10
+        )
+
+        corrected_results.append(result)
+
+
+corrected_calibration_df = pd.concat(
+    corrected_results,
+    ignore_index=True
+)
+
+
+# 3. DISPLAY CORRECTED TABLE
+print("\n" + "=" * 100)
+print("CORRECTED CALIBRATION TABLE")
+print("=" * 100)
+
+print(
+    corrected_calibration_df.to_string(
+        index=False
+    )
+)
+
+
+# 4. CALCULATE WEIGHTED CALIBRATION ERROR
+weighted_summary = (
+    corrected_calibration_df
+    .groupby(
+        ["model", "outcome"],
+        as_index=False
+    )
+    .agg(
+        total_samples=(
+            "sample_count",
+            "sum"
+        ),
+        weighted_absolute_error_sum=(
+            "weighted_error",
+            "sum"
+        )
+    )
+)
+
+weighted_summary[
+    "weighted_calibration_error"
+] = (
+    weighted_summary[
+        "weighted_absolute_error_sum"
+    ]
+    /
+    weighted_summary[
+        "total_samples"
+    ]
+)
+
+
+# 5. CALCULATE ECE
+# For equal-width bins, this is the standard
+# sample-weighted Expected Calibration Error.
+
+weighted_summary[
+    "ECE"
+] = weighted_summary[
+    "weighted_calibration_error"
+]
+
+
+print("\n" + "=" * 100)
+print("CORRECTED WEIGHTED CALIBRATION ERROR / ECE")
+print("=" * 100)
+
+print(
+    weighted_summary[
+        [
+            "model",
+            "outcome",
+            "total_samples",
+            "weighted_calibration_error",
+            "ECE"
+        ]
+    ].to_string(index=False)
+)
+
+
+# 6. OVERALL ECE ACROSS ALL THREE OUTCOMES
+overall_ece = (
+    weighted_summary
+    .groupby("model")
+    .apply(
+        lambda group:
+        np.average(
+            group["ECE"],
+            weights=group["total_samples"]
+        ),
+        include_groups=False
+    )
+    .reset_index(
+        name="overall_weighted_ECE"
+    )
+)
+
+
+print("\n" + "=" * 100)
+print("OVERALL WEIGHTED ECE")
+print("=" * 100)
+
+print(
+    overall_ece.to_string(
+        index=False
+    )
+)
+
+
+# 7. SAVE CORRECTED RESULTS
+corrected_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_f1_corrected_calibration.csv"
+)
+
+corrected_calibration_df.to_csv(
+    corrected_output_path,
+    index=False
+)
+
+
+summary_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_f1_calibration_summary.csv"
+)
+
+weighted_summary.to_csv(
+    summary_output_path,
+    index=False
+)
+
+
+print("\nSaved corrected calibration table:")
+print(corrected_output_path)
+
+print("\nSaved calibration summary:")
+print(summary_output_path)
+
+
+
+# V4-G PAIRED BOOTSTRAP ROBUSTNESS TEST
+# V4-D vs V4-A.2
+# 1. PREPARE PROBABILITIES
+labels = ["A", "D", "H"]
+
+y_true = aligned["result"].to_numpy()
+
+v4a2_probabilities = aligned[
+    [
+        "v4a2_prob_A",
+        "v4a2_prob_D",
+        "v4a2_prob_H"
+    ]
+].to_numpy()
+
+v4d_probabilities = aligned[
+    [
+        "v4d_prob_A",
+        "v4d_prob_D",
+        "v4d_prob_H"
+    ]
+].to_numpy()
+
+
+# 2. ONE-HOT ACTUAL RESULTS
+y_one_hot = np.zeros_like(
+    v4a2_probabilities
+)
+
+for i, result in enumerate(y_true):
+
+    class_index = labels.index(result)
+
+    y_one_hot[
+        i,
+        class_index
+    ] = 1
+
+
+# 3. METRIC FUNCTIONS
+def calculate_log_loss(
+    actual_one_hot,
+    probabilities
+):
+
+    probabilities = np.clip(
+        probabilities,
+        1e-15,
+        1 - 1e-15
+    )
+
+    return -np.mean(
+        np.sum(
+            actual_one_hot *
+            np.log(probabilities),
+            axis=1
+        )
+    )
+
+
+def calculate_brier(
+    actual_one_hot,
+    probabilities
+):
+
+    return np.mean(
+        np.sum(
+            (
+                actual_one_hot -
+                probabilities
+            ) ** 2,
+            axis=1
+        )
+    )
+
+
+def calculate_ece(
+    actual_one_hot,
+    probabilities,
+    n_bins=10
+):
+
+    ece_values = []
+
+    for class_index in range(3):
+
+        class_probabilities = (
+            probabilities[:, class_index]
+        )
+
+        class_actual = (
+            actual_one_hot[:, class_index]
+        )
+
+        class_ece = 0.0
+
+        for i in range(n_bins):
+
+            lower = i / n_bins
+            upper = (i + 1) / n_bins
+
+            if i == n_bins - 1:
+
+                mask = (
+                    (class_probabilities >= lower) &
+                    (class_probabilities <= upper)
+                )
+
+            else:
+
+                mask = (
+                    (class_probabilities >= lower) &
+                    (class_probabilities < upper)
+                )
+
+            count = mask.sum()
+
+            if count == 0:
+                continue
+
+            predicted_mean = (
+                class_probabilities[mask].mean()
+            )
+
+            actual_frequency = (
+                class_actual[mask].mean()
+            )
+
+            class_ece += (
+                count /
+                len(class_probabilities)
+            ) * abs(
+                actual_frequency -
+                predicted_mean
+            )
+
+        ece_values.append(class_ece)
+
+    return np.mean(ece_values)
+
+
+# 4. ORIGINAL TEST-SET METRICS
+v4a2_logloss = calculate_log_loss(
+    y_one_hot,
+    v4a2_probabilities
+)
+
+v4d_logloss = calculate_log_loss(
+    y_one_hot,
+    v4d_probabilities
+)
+
+v4a2_brier = calculate_brier(
+    y_one_hot,
+    v4a2_probabilities
+)
+
+v4d_brier = calculate_brier(
+    y_one_hot,
+    v4d_probabilities
+)
+
+v4a2_ece = calculate_ece(
+    y_one_hot,
+    v4a2_probabilities
+)
+
+v4d_ece = calculate_ece(
+    y_one_hot,
+    v4d_probabilities
+)
+
+
+print("\n" + "=" * 80)
+print("ORIGINAL TEST-SET DIFFERENCES")
+print("=" * 80)
+
+print(
+    f"Log Loss difference: "
+    f"{v4d_logloss - v4a2_logloss:.6f}"
+)
+
+print(
+    f"Brier difference:    "
+    f"{v4d_brier - v4a2_brier:.6f}"
+)
+
+print(
+    f"ECE difference:      "
+    f"{v4d_ece - v4a2_ece:.6f}"
+)
+
+
+# 5. PAIRED BOOTSTRAP
+rng = np.random.default_rng(42)
+
+n_bootstrap = 5000
+
+bootstrap_results = []
+
+
+for iteration in range(
+    n_bootstrap
+):
+
+    indices = rng.integers(
+        0,
+        len(y_true),
+        size=len(y_true)
+    )
+
+    bootstrap_actual = (
+        y_one_hot[indices]
+    )
+
+    bootstrap_v4a2 = (
+        v4a2_probabilities[indices]
+    )
+
+    bootstrap_v4d = (
+        v4d_probabilities[indices]
+    )
+
+
+    # V4-A.2
+    a2_logloss = calculate_log_loss(
+        bootstrap_actual,
+        bootstrap_v4a2
+    )
+
+    a2_brier = calculate_brier(
+        bootstrap_actual,
+        bootstrap_v4a2
+    )
+
+    a2_ece = calculate_ece(
+        bootstrap_actual,
+        bootstrap_v4a2
+    )
+
+
+    # V4-D
+    d_logloss = calculate_log_loss(
+        bootstrap_actual,
+        bootstrap_v4d
+    )
+
+    d_brier = calculate_brier(
+        bootstrap_actual,
+        bootstrap_v4d
+    )
+
+    d_ece = calculate_ece(
+        bootstrap_actual,
+        bootstrap_v4d
+    )
+
+
+    bootstrap_results.append({
+        "log_loss_difference": (
+            d_logloss -
+            a2_logloss
+        ),
+        "brier_difference": (
+            d_brier -
+            a2_brier
+        ),
+        "ece_difference": (
+            d_ece -
+            a2_ece
+        )
+    })
+
+
+bootstrap_df = pd.DataFrame(
+    bootstrap_results
+)
+
+
+# 6. CONFIDENCE INTERVAL FUNCTION
+def confidence_interval(
+    values,
+    confidence=0.95
+):
+
+    lower = (
+        (1 - confidence) / 2
+    )
+
+    upper = (
+        1 - lower
+    )
+
+    return (
+        np.quantile(values, lower),
+        np.quantile(values, upper)
+    )
+
+
+# 7. CALCULATE 95% INTERVALS
+logloss_ci = confidence_interval(
+    bootstrap_df[
+        "log_loss_difference"
+    ]
+)
+
+brier_ci = confidence_interval(
+    bootstrap_df[
+        "brier_difference"
+    ]
+)
+
+ece_ci = confidence_interval(
+    bootstrap_df[
+        "ece_difference"
+    ]
+)
+
+
+# 8. PROPORTION OF BOOTSTRAPS WHERE V4-D IMPROVES
+logloss_improvement_rate = (
+    bootstrap_df[
+        "log_loss_difference"
+    ] < 0
+).mean()
+
+brier_improvement_rate = (
+    bootstrap_df[
+        "brier_difference"
+    ] < 0
+).mean()
+
+ece_improvement_rate = (
+    bootstrap_df[
+        "ece_difference"
+    ] < 0
+).mean()
+
+
+# 9. DISPLAY RESULTS
+print("\n" + "=" * 80)
+print("V4-G PAIRED BOOTSTRAP RESULTS")
+print("=" * 80)
+
+print(
+    f"Bootstrap iterations: {n_bootstrap}"
+)
+
+print("\nLog Loss:")
+print(
+    f"95% CI: "
+    f"[{logloss_ci[0]:.6f}, "
+    f"{logloss_ci[1]:.6f}]"
+)
+
+print(
+    f"V4-D improvement rate: "
+    f"{logloss_improvement_rate:.2%}"
+)
+
+
+print("\nBrier Score:")
+print(
+    f"95% CI: "
+    f"[{brier_ci[0]:.6f}, "
+    f"{brier_ci[1]:.6f}]"
+)
+
+print(
+    f"V4-D improvement rate: "
+    f"{brier_improvement_rate:.2%}"
+)
+
+
+print("\nECE:")
+print(
+    f"95% CI: "
+    f"[{ece_ci[0]:.6f}, "
+    f"{ece_ci[1]:.6f}]"
+)
+
+print(
+    f"V4-D improvement rate: "
+    f"{ece_improvement_rate:.2%}"
+)
+
+
+# 10. SAVE RESULTS
+bootstrap_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_g_bootstrap_results.csv"
+)
+
+bootstrap_df.to_csv(
+    bootstrap_output_path,
+    index=False
+)
+
+print("\nSaved bootstrap results to:")
+print(bootstrap_output_path)
