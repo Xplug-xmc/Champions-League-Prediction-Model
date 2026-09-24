@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from collections import deque
 
-
+from sklearn.metrics import confusion_matrix
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelEncoder
@@ -10942,4 +10942,1030 @@ print(
         index=False,
         float_format=lambda x: f"{x:.4f}"
     )
+)
+
+
+
+
+# V4-B — DRAW-FOCUSED TWO-STAGE MODEL
+print("\n" + "=" * 70)
+print("V4-B — DRAW-FOCUSED TWO-STAGE MODEL")
+print("=" * 70)
+
+
+# TARGETS
+# Stage 1:
+# Draw = 1
+# Not Draw = 0
+
+y_draw_train = (
+    y_train == "D"
+).astype(int)
+
+y_draw_test = (
+    y_test == "D"
+).astype(int)
+
+
+# Stage 2:
+# Only Home/Away matches are used.
+# Draw matches are excluded from Stage 2.
+
+non_draw_train_mask = (
+    y_train != "D"
+)
+
+non_draw_test_mask = (
+    y_test != "D"
+)
+
+X_train_non_draw = X_train[
+    non_draw_train_mask
+]
+
+X_test_non_draw = X_test[
+    non_draw_test_mask
+]
+
+y_home_away_train = y_train[
+    non_draw_train_mask
+]
+
+y_home_away_test = y_test[
+    non_draw_test_mask
+]
+
+
+print("\nStage 1 — Draw vs Not Draw")
+print(
+    "Draw:",
+    int(y_draw_train.sum())
+)
+
+print(
+    "Not Draw:",
+    int((y_draw_train == 0).sum())
+)
+
+print("\nStage 2 — Home vs Away")
+
+print(
+    "Home:",
+    int((y_home_away_train == "H").sum())
+)
+
+print(
+    "Away:",
+    int((y_home_away_train == "A").sum())
+)
+
+
+
+
+# V4-B — STAGE 1: DRAW vs NOT DRAW
+draw_catboost = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="Logloss",
+    random_seed=42,
+    verbose=False
+)
+
+draw_model = CalibratedClassifierCV(
+    draw_catboost,
+    cv=TimeSeriesSplit(n_splits=5),
+    method="sigmoid",
+    ensemble=True
+)
+
+draw_model.fit(
+    X_train,
+    y_draw_train
+)
+
+
+# V4-B — STAGE 2: HOME vs AWAY
+home_away_catboost = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+home_away_model = CalibratedClassifierCV(
+    home_away_catboost,
+    cv=TimeSeriesSplit(n_splits=5),
+    method="sigmoid",
+    ensemble=True
+)
+
+home_away_model.fit(
+    X_train_non_draw,
+    y_home_away_train
+)
+
+
+print("\n" + "=" * 70)
+print("V4-B MODELS TRAINED")
+print("=" * 70)
+
+
+
+
+# V4-B — GENERATE STAGE PROBABILITIES
+# Stage 1 probabilities
+draw_probabilities = draw_model.predict_proba(
+    X_test
+)
+
+draw_classes = draw_model.classes_
+
+
+# Find probability columns
+not_draw_idx = draw_classes.tolist().index(0)
+draw_idx = draw_classes.tolist().index(1)
+
+
+p_not_draw = draw_probabilities[
+    :, not_draw_idx
+]
+
+p_draw = draw_probabilities[
+    :, draw_idx
+]
+
+
+# Stage 2 probabilities
+home_away_probabilities = home_away_model.predict_proba(
+    X_test
+)
+
+home_away_classes = home_away_model.classes_
+
+
+away_idx = home_away_classes.tolist().index("A")
+home_idx = home_away_classes.tolist().index("H")
+
+
+p_away_given_not_draw = home_away_probabilities[
+    :, away_idx
+]
+
+p_home_given_not_draw = home_away_probabilities[
+    :, home_idx
+]
+
+
+# COMBINE THE TWO STAGES
+p_home = (
+    p_not_draw
+    * p_home_given_not_draw
+)
+
+p_away = (
+    p_not_draw
+    * p_away_given_not_draw
+)
+
+
+# Final probability matrix
+v4b_probabilities = np.column_stack([
+    p_away,
+    p_draw,
+    p_home
+])
+
+
+# Final classes
+v4b_classes = np.array([
+    "A",
+    "D",
+    "H"
+])
+
+
+# Final prediction
+v4b_predictions = v4b_classes[
+    np.argmax(
+        v4b_probabilities,
+        axis=1
+    )
+]
+
+
+print("\n" + "=" * 70)
+print("V4-B PROBABILITIES GENERATED")
+print("=" * 70)
+
+print(
+    "Probability shape:",
+    v4b_probabilities.shape
+)
+
+print(
+    "Classes:",
+    v4b_classes
+)
+
+print(
+    "Predicted draws:",
+    int(
+        np.sum(v4b_predictions == "D")
+    )
+)
+
+print(
+    "Mean Draw probability:",
+    f"{p_draw.mean():.4f}"
+)
+
+
+
+# V4-B — METRICS
+v4b_accuracy = accuracy_score(
+    y_test,
+    v4b_predictions
+)
+
+v4b_logloss = log_loss(
+    y_test,
+    v4b_probabilities,
+    labels=["A", "D", "H"]
+)
+
+v4b_brier = multiclass_brier(
+    y_test,
+    v4b_probabilities,
+    ["A", "D", "H"]
+)
+
+v4b_normalized_brier = (
+    v4b_brier / 3
+)
+
+
+# CONFUSION MATRIX
+v4b_confusion = confusion_matrix(
+    y_test,
+    v4b_predictions,
+    labels=["A", "D", "H"]
+)
+
+
+# DISPLAY
+print("\n" + "=" * 70)
+print("V4-B — FINAL METRICS")
+print("=" * 70)
+
+print(
+    "Accuracy:",
+    f"{v4b_accuracy:.4f}"
+)
+
+print(
+    "Log Loss:",
+    f"{v4b_logloss:.4f}"
+)
+
+print(
+    "Brier:",
+    f"{v4b_brier:.4f}"
+)
+
+print(
+    "Normalized Brier:",
+    f"{v4b_normalized_brier:.4f}"
+)
+
+print(
+    "Predicted Draws:",
+    int(np.sum(v4b_predictions == "D"))
+)
+
+print(
+    "Mean Draw Probability:",
+    f"{p_draw.mean():.4f}"
+)
+
+print("\nConfusion Matrix")
+print(
+    confusion_matrix(
+        y_test,
+        v4b_predictions,
+        labels=["A", "D", "H"]
+    )
+)
+
+
+
+
+# V4-B vs V4-A.2 — FIXTURE-LEVEL DIAGNOSTIC
+print("\n" + "=" * 70)
+print("V4-B vs V4-A.2 — FIXTURE COMPARISON")
+print("=" * 70)
+
+
+# V4-A.2 PRIOR 8
+v4a2_data = v4a2_predictions[8]
+
+v4a2_df = v4a2_data["test_df"][
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+v4a2_df["v4a2_prediction"] = np.array(
+    v4a2_data["predictions"]
+)
+
+v4a2_probabilities = v4a2_data["probabilities"]
+
+v4a2_classes = v4a2_data["classes"]
+
+v4a2_df["v4a2_prob_A"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("A")
+]
+
+v4a2_df["v4a2_prob_D"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("D")
+]
+
+v4a2_df["v4a2_prob_H"] = v4a2_probabilities[
+    :, v4a2_classes.tolist().index("H")
+]
+
+
+# V4-B
+v4b_df = v4b_data = v4a2_data["test_df"][
+    [
+        "season",
+        "date",
+        "home_team",
+        "away_team",
+        "result"
+    ]
+].copy()
+
+v4b_df["v4b_prediction"] = np.array(
+    v4b_predictions
+)
+
+v4b_df["v4b_prob_A"] = v4b_probabilities[:, 0]
+v4b_df["v4b_prob_D"] = v4b_probabilities[:, 1]
+v4b_df["v4b_prob_H"] = v4b_probabilities[:, 2]
+
+
+# ALIGN BY EXACT FIXTURE
+match_keys = [
+    "season",
+    "date",
+    "home_team",
+    "away_team"
+]
+
+comparison_df = v4a2_df.merge(
+    v4b_df[
+        match_keys
+        + [
+            "v4b_prediction",
+            "v4b_prob_A",
+            "v4b_prob_D",
+            "v4b_prob_H"
+        ]
+    ],
+    on=match_keys,
+    how="inner",
+    validate="one_to_one"
+)
+
+
+print(
+    "V4-A.2 rows:",
+    len(v4a2_df)
+)
+
+print(
+    "V4-B rows:",
+    len(v4b_df)
+)
+
+print(
+    "Aligned rows:",
+    len(comparison_df)
+)
+
+
+# PROBABILITY CHANGES
+comparison_df["draw_probability_change"] = (
+    comparison_df["v4b_prob_D"]
+    -
+    comparison_df["v4a2_prob_D"]
+)
+
+comparison_df["home_probability_change"] = (
+    comparison_df["v4b_prob_H"]
+    -
+    comparison_df["v4a2_prob_H"]
+)
+
+comparison_df["away_probability_change"] = (
+    comparison_df["v4b_prob_A"]
+    -
+    comparison_df["v4a2_prob_A"]
+)
+
+
+# PREDICTION CHANGES
+comparison_df["prediction_changed"] = (
+    comparison_df["v4a2_prediction"]
+    !=
+    comparison_df["v4b_prediction"]
+)
+
+comparison_df["v4a2_correct"] = (
+    comparison_df["v4a2_prediction"]
+    ==
+    comparison_df["result"]
+)
+
+comparison_df["v4b_correct"] = (
+    comparison_df["v4b_prediction"]
+    ==
+    comparison_df["result"]
+)
+
+
+# SUMMARY
+print("\nPrediction changes:")
+
+print(
+    comparison_df["prediction_changed"]
+    .value_counts()
+)
+
+
+print("\nV4-A.2 correct:")
+print(
+    int(comparison_df["v4a2_correct"].sum())
+)
+
+
+print("\nV4-B correct:")
+print(
+    int(comparison_df["v4b_correct"].sum())
+)
+
+
+print("\nAverage probability changes:")
+
+print(
+    "Away:",
+    f"{comparison_df['away_probability_change'].mean():.4f}"
+)
+
+print(
+    "Draw:",
+    f"{comparison_df['draw_probability_change'].mean():.4f}"
+)
+
+print(
+    "Home:",
+    f"{comparison_df['home_probability_change'].mean():.4f}"
+)
+
+
+# ACTUAL DRAWS 
+actual_draws = comparison_df[
+    comparison_df["result"] == "D"
+].copy()
+
+
+print("\n" + "=" * 70)
+print("ACTUAL DRAW ANALYSIS")
+print("=" * 70)
+
+print(
+    "Actual draws:",
+    len(actual_draws)
+)
+
+print(
+    "V4-A.2 mean Draw probability:",
+    f"{actual_draws['v4a2_prob_D'].mean():.4f}"
+)
+
+print(
+    "V4-B mean Draw probability:",
+    f"{actual_draws['v4b_prob_D'].mean():.4f}"
+)
+
+print(
+    "V4-A.2 max Draw probability:",
+    f"{actual_draws['v4a2_prob_D'].max():.4f}"
+)
+
+print(
+    "V4-B max Draw probability:",
+    f"{actual_draws['v4b_prob_D'].max():.4f}"
+)
+
+
+
+
+
+# V4-C — Calibration-Focused Draw Probability Adjustment
+# V4-C.1 — Get V4-A.2 Prior-8 Dataset
+v4c_data = v4a2_datasets[8]
+
+v4c_features = v4a2_predictions[8]["features"]
+
+X = v4c_data[v4c_features].copy()
+y = v4c_data["result"].copy()
+
+# Same chronological split used throughout the project
+train_mask = v4c_data["date"] < "2023-11-29"
+test_mask = v4c_data["date"] >= "2023-11-29"
+
+X_train_v4c = X.loc[train_mask].reset_index(drop=True)
+y_train_v4c = y.loc[train_mask].reset_index(drop=True)
+
+X_test_v4c = X.loc[test_mask].reset_index(drop=True)
+y_test_v4c = y.loc[test_mask].reset_index(drop=True)
+
+print("V4-C training rows:", len(X_train_v4c))
+print("V4-C test rows:", len(X_test_v4c))
+
+
+
+# V4-C.2 — Generate Time-Aware OOF Predictions
+outer_cv = TimeSeriesSplit(n_splits=5)
+
+oof_probabilities = np.zeros(
+    (len(X_train_v4c), 3)
+)
+
+oof_available = np.zeros(
+    len(X_train_v4c),
+    dtype=bool
+)
+
+for fold, (fold_train_idx, fold_valid_idx) in enumerate(
+    outer_cv.split(X_train_v4c),
+    start=1
+):
+
+    print(f"\nTraining OOF fold {fold}/5...")
+
+    fold_model = CatBoostClassifier(
+        iterations=500,
+        depth=5,
+        learning_rate=0.03,
+        loss_function="MultiClass",
+        random_seed=42,
+        verbose=False
+    )
+
+    fold_calibrated_model = CalibratedClassifierCV(
+        fold_model,
+        cv=TimeSeriesSplit(n_splits=5),
+        method="sigmoid",
+        ensemble=True
+    )
+
+    fold_calibrated_model.fit(
+        X_train_v4c.iloc[fold_train_idx],
+        y_train_v4c.iloc[fold_train_idx]
+    )
+
+    oof_probabilities[fold_valid_idx] = (
+        fold_calibrated_model.predict_proba(
+            X_train_v4c.iloc[fold_valid_idx]
+        )
+    )
+
+    oof_available[fold_valid_idx] = True
+
+
+# Keep only rows that received genuine out-of-fold predictions
+oof_y = y_train_v4c.loc[oof_available].reset_index(drop=True)
+oof_probabilities = oof_probabilities[oof_available]
+
+print("\nOOF rows available:", len(oof_y))
+
+
+
+
+# V4-C.3 — Identify Class Order
+v4c_classes = np.array(
+    v4a2_predictions[8]["classes"]
+)
+
+print(
+    "\nV4-C class order:",
+    v4c_classes
+)
+
+draw_index = list(v4c_classes).index("D")
+
+
+
+
+# V4-C.4 — Draw Probability Adjustment Function
+def adjust_draw_probability(probabilities, multiplier):
+
+    adjusted = probabilities.copy()
+
+    # Increase or decrease Draw probability
+    adjusted[:, draw_index] *= multiplier
+
+    # Renormalize so A + D + H = 1
+    adjusted /= adjusted.sum(
+        axis=1,
+        keepdims=True
+    )
+
+    return adjusted
+
+
+
+# V4-C.5 — Tune Multiplier Using ONLY OOF Training Data
+candidate_multipliers = [
+    0.90,
+    1.00,
+    1.10,
+    1.20,
+    1.30,
+    1.40,
+    1.50
+]
+
+v4c_tuning_results = []
+
+for multiplier in candidate_multipliers:
+
+    adjusted_probabilities = adjust_draw_probability(
+        oof_probabilities,
+        multiplier
+    )
+
+    predictions = v4c_classes[
+        np.argmax(
+            adjusted_probabilities,
+            axis=1
+        )
+    ]
+
+    accuracy = accuracy_score(
+        oof_y,
+        predictions
+    )
+
+    logloss = log_loss(
+        oof_y,
+        adjusted_probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    oof_one_hot = (
+        pd.get_dummies(
+            oof_y
+        )
+        .reindex(
+            columns=["A", "D", "H"],
+            fill_value=0
+        )
+        .values
+    )
+
+    brier = np.mean(
+        np.sum(
+            (
+                oof_one_hot
+                -
+                adjusted_probabilities
+            ) ** 2,
+            axis=1
+        )
+    )
+
+    predicted_draws = np.sum(
+        predictions == "D"
+    )
+
+    mean_draw_probability = (
+        adjusted_probabilities[
+            :, draw_index
+        ].mean()
+    )
+
+    v4c_tuning_results.append({
+        "draw_multiplier": multiplier,
+        "accuracy": accuracy,
+        "log_loss": logloss,
+        "brier": brier,
+        "predicted_draws": predicted_draws,
+        "mean_draw_probability": mean_draw_probability
+    })
+
+
+v4c_tuning_df = pd.DataFrame(
+    v4c_tuning_results
+)
+
+print("\nV4-C OOF tuning results:")
+
+print(
+    v4c_tuning_df.to_string(
+        index=False
+    )
+)
+
+
+
+# V4-C.6 — Select Best Multiplier
+best_v4c_row = (
+    v4c_tuning_df
+    .sort_values(
+        ["log_loss", "brier"]
+    )
+    .iloc[0]
+)
+
+best_multiplier = float(
+    best_v4c_row["draw_multiplier"]
+)
+
+print(
+    f"\nSelected Draw multiplier: "
+    f"{best_multiplier:.2f}"
+)
+
+print(
+    "Selection based on OOF Log Loss "
+    "(Brier used as secondary metric)."
+)
+
+
+
+# V4-C.7 — Evaluate on Untouched Test Set
+# Original V4-A.2 p=8 probabilities
+base_test_probabilities = (
+    v4a2_predictions[8]["probabilities"]
+)
+
+base_test_predictions = (
+    v4a2_predictions[8]["predictions"]
+)
+
+
+# Apply selected Draw multiplier
+v4c_test_probabilities = (
+    adjust_draw_probability(
+        base_test_probabilities,
+        best_multiplier
+    )
+)
+
+
+# Convert probabilities into predicted classes
+v4c_test_predictions = v4c_classes[
+    np.argmax(
+        v4c_test_probabilities,
+        axis=1
+    )
+]
+
+
+
+# V4-C.8 — Calculate Test Metrics
+v4c_accuracy = accuracy_score(
+    y_test_v4c,
+    v4c_test_predictions
+)
+
+
+v4c_logloss = log_loss(
+    y_test_v4c,
+    v4c_test_probabilities,
+    labels=["A", "D", "H"]
+)
+
+
+# Actual outcomes → one-hot
+actual_test_one_hot = (
+    pd.get_dummies(
+        y_test_v4c
+    )
+    .reindex(
+        columns=["A", "D", "H"],
+        fill_value=0
+    )
+    .values
+)
+
+
+# Multiclass Brier Score
+v4c_brier = np.mean(
+    np.sum(
+        (
+            actual_test_one_hot
+            -
+            v4c_test_probabilities
+        ) ** 2,
+        axis=1
+    )
+)
+
+
+# ------------------------------------------------------------
+# IMPORTANT:
+# Keep the same normalized Brier definition used
+# throughout the project.
+#
+# 3 outcome classes = A, D, H
+# ------------------------------------------------------------
+
+v4c_normalized_brier = (
+    v4c_brier
+    /
+    len(v4c_classes)
+)
+
+
+# Draw diagnostics
+v4c_predicted_draws = np.sum(
+    v4c_test_predictions == "D"
+)
+
+v4c_mean_draw_probability = (
+    v4c_test_probabilities[
+        :, draw_index
+    ].mean()
+)
+
+
+print("\n" + "=" * 60)
+print("V4-C TEST RESULTS")
+print("=" * 60)
+
+print(
+    f"Selected multiplier: {best_multiplier:.2f}"
+)
+
+print(
+    f"Accuracy:           {v4c_accuracy:.4f}"
+)
+
+print(
+    f"Log Loss:           {v4c_logloss:.4f}"
+)
+
+print(
+    f"Brier Score:        {v4c_brier:.4f}"
+)
+
+print(
+    f"Normalized Brier:   {v4c_normalized_brier:.4f}"
+)
+
+print(
+    f"Predicted Draws:    {v4c_predicted_draws}"
+)
+
+print(
+    f"Mean Draw Prob:     "
+    f"{v4c_mean_draw_probability:.4f}"
+)
+
+
+# V4-C.9 — Compare V4-A.2 p=8 vs V4-C
+# V4-A.2 baseline predictions
+v4a2_baseline_predictions = (
+    v4a2_predictions[8]["predictions"]
+)
+
+v4a2_baseline_probabilities = (
+    v4a2_predictions[8]["probabilities"]
+)
+
+
+
+# V4-A.2 Accuracy
+v4a2_accuracy = accuracy_score(
+    y_test_v4c,
+    v4a2_baseline_predictions
+)
+
+
+
+# V4-A.2 Log Loss
+v4a2_logloss = log_loss(
+    y_test_v4c,
+    v4a2_baseline_probabilities,
+    labels=["A", "D", "H"]
+)
+
+
+
+# V4-A.2 Brier Score
+v4a2_brier = np.mean(
+    np.sum(
+        (
+            actual_test_one_hot
+            -
+            v4a2_baseline_probabilities
+        ) ** 2,
+        axis=1
+    )
+)
+
+
+
+# V4-A.2 Normalized Brier
+v4a2_normalized_brier = (
+    v4a2_brier
+    /
+    len(v4c_classes)
+)
+
+
+
+# Comparison Table
+comparison = pd.DataFrame({
+
+    "model": [
+        "V4-A.2 p=8",
+        "V4-C"
+    ],
+
+    "accuracy": [
+        v4a2_accuracy,
+        v4c_accuracy
+    ],
+
+    "log_loss": [
+        v4a2_logloss,
+        v4c_logloss
+    ],
+
+    "brier": [
+        v4a2_brier,
+        v4c_brier
+    ],
+
+    "normalized_brier": [
+        v4a2_normalized_brier,
+        v4c_normalized_brier
+    ],
+
+    "predicted_draws": [
+        np.sum(
+            v4a2_baseline_predictions == "D"
+        ),
+        v4c_predicted_draws
+    ],
+
+    "mean_draw_probability": [
+        v4a2_baseline_probabilities[
+            :, draw_index
+        ].mean(),
+
+        v4c_mean_draw_probability
+    ]
+})
+
+
+print("\nV4-A.2 vs V4-C:")
+
+print(
+    comparison.to_string(
+        index=False
+    )
+)
+
+
+
+# V4-C.10 — Save Tuning Results
+v4c_output_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4_c_draw_calibration.csv"
+)
+
+v4c_tuning_df.to_csv(
+    v4c_output_path,
+    index=False
+)
+
+print(
+    f"\nSaved V4-C tuning results to:\n"
+    f"{v4c_output_path}"
 )
