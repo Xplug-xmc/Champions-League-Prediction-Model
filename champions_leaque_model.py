@@ -13797,3 +13797,1939 @@ bootstrap_df.to_csv(
 
 print("\nSaved bootstrap results to:")
 print(bootstrap_output_path)
+
+
+
+
+# V4-H — BUILD STABILIZED V4-A.2 FEATURES
+V4A2_PRIOR_STRENGTH = 8
+
+
+def add_v4a2_features(df, prior_strength, historical_draw_rate):
+    result = df.copy()
+
+    result[f"home_stabilized_win_rate_p{prior_strength}"] = (
+        result["home_current_season_win_rate"]
+        * result["home_current_season_matches"]
+        + result["home_win_rate"] * prior_strength
+    ) / (
+        result["home_current_season_matches"] + prior_strength
+    )
+
+    result[f"away_stabilized_win_rate_p{prior_strength}"] = (
+        result["away_current_season_win_rate"]
+        * result["away_current_season_matches"]
+        + result["away_win_rate"] * prior_strength
+    ) / (
+        result["away_current_season_matches"] + prior_strength
+    )
+
+    result[f"home_stabilized_draw_rate_p{prior_strength}"] = (
+        result["home_current_season_draw_rate"]
+        * result["home_current_season_matches"]
+        + historical_draw_rate * prior_strength
+    ) / (
+        result["home_current_season_matches"] + prior_strength
+    )
+
+    result[f"away_stabilized_draw_rate_p{prior_strength}"] = (
+        result["away_current_season_draw_rate"]
+        * result["away_current_season_matches"]
+        + historical_draw_rate * prior_strength
+    ) / (
+        result["away_current_season_matches"] + prior_strength
+    )
+
+    result[f"stabilized_win_rate_edge_p{prior_strength}"] = (
+        result[f"home_stabilized_win_rate_p{prior_strength}"]
+        - result[f"away_stabilized_win_rate_p{prior_strength}"]
+    )
+
+    result[f"stabilized_draw_rate_edge_p{prior_strength}"] = (
+        result[f"home_stabilized_draw_rate_p{prior_strength}"]
+        - result[f"away_stabilized_draw_rate_p{prior_strength}"]
+    )
+
+    return result
+
+
+
+# LOAD V4-A COMBINED FEATURES
+features_v4a_combined_path = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "champions_league_features_v4a_combined.csv"
+)
+
+features_v4a_combined = pd.read_csv(
+    features_v4a_combined_path
+)
+
+print("V4-A combined shape:", features_v4a_combined.shape)
+
+
+
+# TRAINING-ONLY PRIORS
+TRAIN_END_DATE = "2023-11-28"
+
+training_data = features_v4a_combined[
+    features_v4a_combined["date"] <= TRAIN_END_DATE
+].copy()
+
+historical_draw_rate = (
+    (training_data["result"] == "D").mean()
+)
+
+historical_home_win_rate = (
+    training_data["home_win_rate"].mean()
+)
+
+historical_away_win_rate = (
+    training_data["away_win_rate"].mean()
+)
+
+print("\nTraining rows:", len(training_data))
+print("Historical training draw rate:", historical_draw_rate)
+print("Average historical home win rate:", historical_home_win_rate)
+print("Average historical away win rate:", historical_away_win_rate)
+
+
+
+# CREATE V4-A.2 FEATURES
+features_v4a2 = add_v4a2_features(
+    features_v4a_combined,
+    prior_strength=V4A2_PRIOR_STRENGTH,
+    historical_draw_rate=historical_draw_rate
+)
+
+print("\nV4-A.2 shape:", features_v4a2.shape)
+
+
+
+# SAVE V4-A.2 FEATURES
+v4a2_path = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "champions_league_features_v4a2.csv"
+)
+
+features_v4a2.to_csv(
+    v4a2_path,
+    index=False
+)
+
+print("Saved:", v4a2_path)
+
+
+
+# V4-A.2 SANITY CHECKS
+v4a2_feature_columns = [
+    "home_stabilized_win_rate_p8",
+    "away_stabilized_win_rate_p8",
+    "home_stabilized_draw_rate_p8",
+    "away_stabilized_draw_rate_p8",
+    "stabilized_win_rate_edge_p8",
+    "stabilized_draw_rate_edge_p8",
+]
+
+print("\nMissing V4-A.2 values:")
+print(
+    features_v4a2[v4a2_feature_columns]
+    .isna()
+    .sum()
+)
+
+print(
+    "\nV4-A.2 feature ranges:"
+)
+
+print(
+    features_v4a2[v4a2_feature_columns].describe().T[
+        ["min", "max", "mean", "std"]
+    ]
+)
+
+
+
+
+# V4-H — BUILD PRODUCTION V4-A.2 FEATURES
+PRODUCTION_PRIOR_STRENGTH = 8
+
+production_historical_draw_rate = (
+    features_v4a_combined["result"] == "D"
+).mean()
+
+production_features_v4a2 = add_v4a2_features(
+    features_v4a_combined,
+    prior_strength=PRODUCTION_PRIOR_STRENGTH,
+    historical_draw_rate=production_historical_draw_rate
+)
+
+print(
+    "Production V4-A.2 shape:",
+    production_features_v4a2.shape
+)
+
+
+
+
+# SAVE PRODUCTION FEATURES
+production_v4a2_path = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "champions_league_features_v4a2_production.csv"
+)
+
+production_features_v4a2.to_csv(
+    production_v4a2_path,
+    index=False
+)
+
+print(
+    "Saved production features:",
+    production_v4a2_path
+)
+
+
+
+# PRODUCTION FEATURE SANITY CHECKS
+production_v4a2_features = [
+    "home_stabilized_win_rate_p8",
+    "away_stabilized_win_rate_p8",
+    "home_stabilized_draw_rate_p8",
+    "away_stabilized_draw_rate_p8",
+    "stabilized_win_rate_edge_p8",
+    "stabilized_draw_rate_edge_p8",
+]
+
+print("\nShape:", production_features_v4a2.shape)
+
+print(
+    "\nMissing values:",
+    production_features_v4a2[
+        production_v4a2_features
+    ].isna().sum().sum()
+)
+
+print(
+    "Duplicate fixtures:",
+    production_features_v4a2.duplicated(
+        subset=["season", "date", "home_team", "away_team"]
+    ).sum()
+)
+
+print(
+    "Seasons:",
+    production_features_v4a2["season"].nunique()
+)
+
+print(
+    "\nProduction prior draw rate:",
+    production_historical_draw_rate
+)
+
+print(
+    "\nStabilized feature summary:"
+)
+
+print(
+    production_features_v4a2[
+        production_v4a2_features
+    ].describe().T[
+        ["min", "max", "mean", "std"]
+    ]
+)
+
+
+
+
+# V4-H — STEP 7: DEFINE PRODUCTION MODEL FEATURES
+V4A2_STABILIZED_FEATURES = [
+    "home_stabilized_win_rate_p8",
+    "away_stabilized_win_rate_p8",
+    "home_stabilized_draw_rate_p8",
+    "away_stabilized_draw_rate_p8",
+    "stabilized_win_rate_edge_p8",
+    "stabilized_draw_rate_edge_p8",
+]
+
+V4A2_MODEL_FEATURES = (
+    V2_MODEL_FEATURES
+    + v4a_features
+    + V4A2_STABILIZED_FEATURES
+)
+
+print("Number of production model features:", len(V4A2_MODEL_FEATURES))
+
+print("\nProduction model features:")
+for i, feature in enumerate(V4A2_MODEL_FEATURES, start=1):
+    print(f"{i:02d}. {feature}")
+
+
+
+
+
+# V4-H — STEP 8: TRAIN FULL PRODUCTION MODEL
+# Prepare production data
+X_production = production_features_v4a2[
+    V4A2_MODEL_FEATURES
+].copy()
+
+y_production = production_features_v4a2[
+    "result"
+].copy()
+
+
+
+# Confirm chronological order
+production_dates = pd.to_datetime(
+    production_features_v4a2["date"]
+)
+
+print("Production rows:", len(X_production))
+print("Production features:", X_production.shape[1])
+print("First date:", production_dates.min())
+print("Last date:", production_dates.max())
+
+
+
+# Build CatBoost model
+production_catboost = CatBoostClassifier(
+    iterations=500,
+    depth=5,
+    learning_rate=0.03,
+    loss_function="MultiClass",
+    random_seed=42,
+    verbose=False
+)
+
+
+
+# Time-aware sigmoid calibration
+production_calibrated_model = CalibratedClassifierCV(
+    production_catboost,
+    cv=TimeSeriesSplit(n_splits=5),
+    method="sigmoid",
+    ensemble=True
+)
+
+
+
+# Train
+production_calibrated_model.fit(
+    X_production,
+    y_production
+)
+
+print("\nProduction model training complete.")
+
+print(
+    "Classes:",
+    production_calibrated_model.classes_
+)
+
+print(
+    "Model type:",
+    type(production_calibrated_model).__name__
+)
+
+
+
+
+# V4-H — STEP 9: CHECK PRODUCTION PROBABILITIES
+production_probabilities = (
+    production_calibrated_model.predict_proba(
+        X_production
+    )
+)
+
+print("Probability shape:", production_probabilities.shape)
+
+print(
+    "Classes:",
+    production_calibrated_model.classes_
+)
+
+print(
+    "\nProbability minimum:",
+    production_probabilities.min()
+)
+
+print(
+    "Probability maximum:",
+    production_probabilities.max()
+)
+
+print(
+    "Probability row-sum minimum:",
+    production_probabilities.sum(axis=1).min()
+)
+
+print(
+    "Probability row-sum maximum:",
+    production_probabilities.sum(axis=1).max()
+)
+
+print("\nAverage probabilities:")
+
+for class_name, index in zip(
+    production_calibrated_model.classes_,
+    range(len(production_calibrated_model.classes_))
+):
+    print(
+        f"{class_name}: "
+        f"{production_probabilities[:, index].mean():.4f}"
+    )
+
+print("\nFirst 5 probability rows:")
+print(
+    production_probabilities[:5]
+)
+
+
+
+
+# V4-H — STEP 10: APPLY V4-D TEMPERATURE SCALING
+PRODUCTION_TEMPERATURE = 0.80
+
+
+def apply_temperature_scaling(probabilities, temperature):
+    probabilities = np.clip(
+        probabilities,
+        1e-15,
+        1.0
+    )
+
+    log_probabilities = np.log(probabilities)
+
+    scaled_logits = (
+        log_probabilities / temperature
+    )
+
+    scaled_logits -= np.max(
+        scaled_logits,
+        axis=1,
+        keepdims=True
+    )
+
+    exp_values = np.exp(scaled_logits)
+
+    calibrated_probabilities = (
+        exp_values
+        / exp_values.sum(
+            axis=1,
+            keepdims=True
+        )
+    )
+
+    return calibrated_probabilities
+
+
+production_temperature_probabilities = (
+    apply_temperature_scaling(
+        production_probabilities,
+        PRODUCTION_TEMPERATURE
+    )
+)
+
+print(
+    "Temperature:",
+    PRODUCTION_TEMPERATURE
+)
+
+print(
+    "Probability shape:",
+    production_temperature_probabilities.shape
+)
+
+print(
+    "\nProbability minimum:",
+    production_temperature_probabilities.min()
+)
+
+print(
+    "Probability maximum:",
+    production_temperature_probabilities.max()
+)
+
+print(
+    "Row-sum minimum:",
+    production_temperature_probabilities.sum(axis=1).min()
+)
+
+print(
+    "Row-sum maximum:",
+    production_temperature_probabilities.sum(axis=1).max()
+)
+
+print("\nAverage V4-D production probabilities:")
+
+for class_name, index in zip(
+    production_calibrated_model.classes_,
+    range(len(production_calibrated_model.classes_))
+):
+    print(
+        f"{class_name}: "
+        f"{production_temperature_probabilities[:, index].mean():.4f}"
+    )
+
+print("\nFirst 5 V4-D probability rows:")
+print(
+    production_temperature_probabilities[:5]
+)
+
+
+
+
+# V4-H — STEP 11: SAVE PRODUCTION MODEL ARTIFACT
+# Production model artifact
+production_model_artifact = {
+    "model": production_calibrated_model,
+    "temperature": PRODUCTION_TEMPERATURE,
+    "classes": production_calibrated_model.classes_.tolist(),
+    "feature_names": V4A2_MODEL_FEATURES,
+    "prior_strength": PRODUCTION_PRIOR_STRENGTH,
+    "historical_draw_rate": float(
+        production_historical_draw_rate
+    ),
+}
+
+production_model_path = (
+    BASE_DIR
+    / "data"
+    / "models"
+    / "champions_league_v4d_production.joblib"
+)
+
+joblib.dump(
+    production_model_artifact,
+    production_model_path
+)
+
+print(
+    "Saved production model:",
+    production_model_path
+)
+
+
+# Feature configuration
+production_feature_config = {
+    "model_version": "V4-D",
+    "model_type": "CatBoost + Sigmoid Calibration + Temperature Scaling",
+    "temperature": PRODUCTION_TEMPERATURE,
+    "prior_strength": PRODUCTION_PRIOR_STRENGTH,
+    "historical_draw_rate": float(
+        production_historical_draw_rate
+    ),
+    "number_of_features": len(V4A2_MODEL_FEATURES),
+    "features": V4A2_MODEL_FEATURES,
+    "classes": production_calibrated_model.classes_.tolist(),
+    "training_rows": len(production_features_v4a2),
+    "training_start_date": str(
+        production_dates.min().date()
+    ),
+    "training_end_date": str(
+        production_dates.max().date()
+    ),
+}
+
+production_feature_config_path = (
+    BASE_DIR
+    / "data"
+    / "models"
+    / "champions_league_v4d_feature_config.json"
+)
+
+with open(
+    production_feature_config_path,
+    "w",
+    encoding="utf-8"
+) as file:
+    json.dump(
+        production_feature_config,
+        file,
+        indent=4
+    )
+
+print(
+    "Saved feature config:",
+    production_feature_config_path
+)
+
+
+
+print("\n")
+
+
+# V4-H — STEP 12: VERIFY SAVED PRODUCTION ARTIFACT
+
+loaded_artifact = joblib.load(
+    production_model_path
+)
+
+loaded_model = loaded_artifact["model"]
+loaded_temperature = loaded_artifact["temperature"]
+
+loaded_probabilities = apply_temperature_scaling(
+    loaded_model.predict_proba(X_production),
+    loaded_temperature
+)
+
+
+# Compare saved model with in-memory model
+max_probability_difference = np.max(
+    np.abs(
+        production_temperature_probabilities
+        - loaded_probabilities
+    )
+)
+
+print(
+    "Loaded temperature:",
+    loaded_temperature
+)
+
+print(
+    "Loaded classes:",
+    loaded_artifact["classes"]
+)
+
+print(
+    "Loaded feature count:",
+    len(loaded_artifact["feature_names"])
+)
+
+print(
+    "\nMaximum probability difference:",
+    max_probability_difference
+)
+
+print(
+    "\nArtifact verification:",
+    np.allclose(
+        production_temperature_probabilities,
+        loaded_probabilities,
+        atol=1e-12
+    )
+)
+
+print("\nFirst 5 loaded probabilities:")
+print(
+    loaded_probabilities[:5]
+)
+
+
+
+print("\n")
+
+
+# V4-I — STEP 1: TIME-AWARE OUT-OF-SAMPLE PREDICTIONS
+# Prepare production dataset
+v4i_data = production_features_v4a2.copy()
+
+v4i_data["date"] = pd.to_datetime(
+    v4i_data["date"]
+)
+
+v4i_data = v4i_data.sort_values(
+    "date"
+).reset_index(drop=True)
+
+X_v4i = v4i_data[
+    V4A2_MODEL_FEATURES
+].copy()
+
+y_v4i = v4i_data[
+    "result"
+].copy()
+
+
+
+# Outer time-aware cross-validation
+outer_cv = TimeSeriesSplit(
+    n_splits=5
+)
+
+oos_predictions = []
+
+print("Total historical matches:", len(v4i_data))
+print("Number of production features:", X_v4i.shape[1])
+print("\nGenerating time-aware OOS predictions...\n")
+
+
+
+# Outer folds
+for fold_number, (train_idx, test_idx) in enumerate(
+    outer_cv.split(X_v4i),
+    start=1
+):
+
+    X_train = X_v4i.iloc[train_idx]
+    X_test = X_v4i.iloc[test_idx]
+
+    y_train = y_v4i.iloc[train_idx]
+
+    train_dates = v4i_data.iloc[
+        train_idx
+    ]["date"]
+
+    test_dates = v4i_data.iloc[
+        test_idx
+    ]["date"]
+
+    print(
+        f"Fold {fold_number}:"
+    )
+
+    print(
+        f"  Train rows: {len(train_idx)}"
+    )
+
+    print(
+        f"  Test rows:  {len(test_idx)}"
+    )
+
+    print(
+        f"  Train dates: "
+        f"{train_dates.min().date()} "
+        f"→ "
+        f"{train_dates.max().date()}"
+    )
+
+    print(
+        f"  Test dates:  "
+        f"{test_dates.min().date()} "
+        f"→ "
+        f"{test_dates.max().date()}"
+    )
+
+
+
+    # Base CatBoost model
+    fold_catboost = CatBoostClassifier(
+        iterations=500,
+        depth=5,
+        learning_rate=0.03,
+        loss_function="MultiClass",
+        random_seed=42,
+        verbose=False
+    )
+
+
+
+    # Time-aware sigmoid calibration
+    inner_cv = TimeSeriesSplit(
+        n_splits=5
+    )
+
+    fold_calibrated_model = CalibratedClassifierCV(
+        fold_catboost,
+        cv=inner_cv,
+        method="sigmoid",
+        ensemble=True
+    )
+
+
+
+    # Train only on historical data available at this fold
+    fold_calibrated_model.fit(
+        X_train,
+        y_train
+    )
+
+
+
+    # Predict the future block
+    fold_probabilities = (
+        fold_calibrated_model.predict_proba(
+            X_test
+        )
+    )
+
+
+
+    # Apply V4-D temperature scaling
+    fold_temperature_probabilities = (
+        apply_temperature_scaling(
+            fold_probabilities,
+            PRODUCTION_TEMPERATURE
+        )
+    )
+
+    classes = (
+        fold_calibrated_model.classes_
+    )
+
+
+
+    # Convert probabilities to predicted class
+    predicted_indices = np.argmax(
+        fold_temperature_probabilities,
+        axis=1
+    )
+
+    fold_predictions = classes[
+        predicted_indices
+    ]
+
+
+    # Store fold predictions
+    fold_results = v4i_data.iloc[
+        test_idx
+    ][
+        [
+            "season",
+            "round",
+            "date",
+            "home_team",
+            "away_team",
+            "result"
+        ]
+    ].copy()
+
+    fold_results[
+        "predicted_result"
+    ] = fold_predictions
+
+    fold_results[
+        "prob_A"
+    ] = fold_temperature_probabilities[
+        :,
+        list(classes).index("A")
+    ]
+
+    fold_results[
+        "prob_D"
+    ] = fold_temperature_probabilities[
+        :,
+        list(classes).index("D")
+    ]
+
+    fold_results[
+        "prob_H"
+    ] = fold_temperature_probabilities[
+        :,
+        list(classes).index("H")
+    ]
+
+    fold_results[
+        "oos_fold"
+    ] = fold_number
+
+    oos_predictions.append(
+        fold_results
+    )
+
+    print(
+        f"  OOS predictions generated: "
+        f"{len(fold_results)}"
+    )
+
+    print()
+
+
+
+# Combine all OOS predictions
+v4i_oos_predictions = pd.concat(
+    oos_predictions,
+    ignore_index=True
+)
+
+
+
+# Sort chronologically
+v4i_oos_predictions = (
+    v4i_oos_predictions
+    .sort_values("date")
+    .reset_index(drop=True)
+)
+
+
+
+# Basic validation
+print("=" * 60)
+print("V4-I OOS PREDICTION SUMMARY")
+print("=" * 60)
+
+print(
+    "\nOOS prediction rows:",
+    len(v4i_oos_predictions)
+)
+
+print(
+    "Historical rows:",
+    len(v4i_data)
+)
+
+print(
+    "OOS coverage:",
+    f"{len(v4i_oos_predictions) / len(v4i_data):.2%}"
+)
+
+print(
+    "\nDate range:",
+    v4i_oos_predictions["date"].min().date(),
+    "→",
+    v4i_oos_predictions["date"].max().date()
+)
+
+print(
+    "\nDuplicate fixtures:",
+    v4i_oos_predictions.duplicated(
+        subset=[
+            "season",
+            "date",
+            "home_team",
+            "away_team"
+        ]
+    ).sum()
+)
+
+print(
+    "Missing probabilities:",
+    v4i_oos_predictions[
+        [
+            "prob_A",
+            "prob_D",
+            "prob_H"
+        ]
+    ].isna().sum().sum()
+)
+
+print(
+    "\nProbability row-sum range:",
+    v4i_oos_predictions[
+        [
+            "prob_A",
+            "prob_D",
+            "prob_H"
+        ]
+    ].sum(axis=1).min(),
+    "→",
+    v4i_oos_predictions[
+        [
+            "prob_A",
+            "prob_D",
+            "prob_H"
+        ]
+    ].sum(axis=1).max()
+)
+
+print(
+    "\nActual result distribution:"
+)
+
+print(
+    v4i_oos_predictions[
+        "result"
+    ].value_counts()
+    .sort_index()
+)
+
+print(
+    "\nPredicted result distribution:"
+)
+
+print(
+    v4i_oos_predictions[
+        "predicted_result"
+    ].value_counts()
+    .sort_index()
+)
+
+
+
+# Save OOS predictions
+v4i_oos_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_oos_predictions.to_csv(
+    v4i_oos_path,
+    index=False
+)
+
+print(
+    "\nSaved OOS predictions:",
+    v4i_oos_path
+)
+
+
+
+
+# V4-I — STEP 2: OVERALL + DRAW PERFORMANCE
+# Actual and predicted classes
+actual = v4i_oos_predictions["result"].values
+predicted = v4i_oos_predictions["predicted_result"].values
+
+probabilities = v4i_oos_predictions[
+    ["prob_A", "prob_D", "prob_H"]
+].values
+
+
+
+# Accuracy
+accuracy = accuracy_score(
+    actual,
+    predicted
+)
+
+
+
+# Log Loss
+logloss = log_loss(
+    actual,
+    probabilities,
+    labels=["A", "D", "H"]
+)
+
+
+
+# Multiclass Brier Scor
+actual_one_hot = pd.get_dummies(
+    pd.Categorical(
+        actual,
+        categories=["A", "D", "H"]
+    )
+).values
+
+brier_score = np.mean(
+    np.sum(
+        (probabilities - actual_one_hot) ** 2,
+        axis=1
+    )
+)
+
+normalized_brier = brier_score / 3
+
+
+
+# Confusion Matrix
+confusion = confusion_matrix(
+    actual,
+    predicted,
+    labels=["A", "D", "H"]
+)
+
+
+
+# Draw-specific analysis
+draw_mask = actual == "D"
+
+actual_draw_count = draw_mask.sum()
+
+draw_probabilities = (
+    v4i_oos_predictions.loc[
+        draw_mask,
+        "prob_D"
+    ]
+)
+
+predicted_draw_count = (
+    predicted[draw_mask] == "D"
+).sum()
+
+
+
+# Draw probability thresholds
+draw_thresholds = [
+    0.15,
+    0.20,
+    0.25,
+    0.30,
+    0.35,
+    0.40
+]
+
+print("=" * 60)
+print("V4-I OOS PERFORMANCE")
+print("=" * 60)
+
+print(
+    f"\nOOS matches: {len(v4i_oos_predictions)}"
+)
+
+print(
+    f"Accuracy: {accuracy:.4f}"
+)
+
+print(
+    f"Log Loss: {logloss:.4f}"
+)
+
+print(
+    f"Brier Score: {brier_score:.4f}"
+)
+
+print(
+    f"Normalized Brier: {normalized_brier:.4f}"
+)
+
+print("\nConfusion Matrix")
+print(
+    "Rows = Actual | Columns = Predicted"
+)
+
+print(
+    pd.DataFrame(
+        confusion,
+        index=["Actual A", "Actual D", "Actual H"],
+        columns=["Pred A", "Pred D", "Pred H"]
+    )
+)
+
+print("\n" + "=" * 60)
+print("DRAW ANALYSIS")
+print("=" * 60)
+
+print(
+    f"\nActual draws: {actual_draw_count}"
+)
+
+print(
+    f"Predicted draws: "
+    f"{(predicted == 'D').sum()}"
+)
+
+print(
+    f"Actual draws predicted as Draw: "
+    f"{predicted_draw_count}"
+)
+
+print(
+    f"Draw classification recall: "
+    f"{predicted_draw_count / actual_draw_count:.4f}"
+)
+
+print("\nDraw probability statistics:")
+print(
+    draw_probabilities.describe()
+)
+
+print("\nActual Draws by Draw Probability:")
+
+for threshold in draw_thresholds:
+
+    count = (
+        draw_probabilities >= threshold
+    ).sum()
+
+    percentage = (
+        count / actual_draw_count
+    )
+
+    print(
+        f"Draw probability >= "
+        f"{threshold:.0%}: "
+        f"{count} / {actual_draw_count} "
+        f"({percentage:.2%})"
+    )
+
+
+# How often Draw was the highest probability
+draw_was_highest = (
+    v4i_oos_predictions["prob_D"]
+    >=
+    v4i_oos_predictions[
+        ["prob_A", "prob_H"]
+    ].max(axis=1)
+)
+
+print(
+    "\nDraw was highest probability:",
+    draw_was_highest.sum(),
+    "/",
+    len(v4i_oos_predictions)
+)
+
+print(
+    "Draw was highest probability on "
+    "actual draws:",
+    (
+        draw_was_highest
+        & draw_mask
+    ).sum(),
+    "/",
+    actual_draw_count
+)
+
+
+
+print("\n")
+
+
+# V4-I — STEP 3: INSPECT ACTUAL DRAW PREDICTIONS
+# Load the saved OOS predictions
+v4i_draw_analysis = pd.read_csv(
+    r"C:\Users\USER\OneDrive\Desktop\Champions_league_model\data\predictions\champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_draw_analysis["date"] = pd.to_datetime(
+    v4i_draw_analysis["date"]
+)
+
+
+
+# Keep only matches that actually ended in a Draw
+actual_draws_df = (
+    v4i_draw_analysis[
+        v4i_draw_analysis["result"] == "D"
+    ]
+    .copy()
+)
+
+
+
+# Sort by model Draw probability
+actual_draws_df = actual_draws_df.sort_values(
+    "prob_D",
+    ascending=False
+).reset_index(drop=True)
+
+
+
+# Display highest Draw-probability actual draws
+print("=" * 70)
+print("TOP 30 ACTUAL DRAWS BY MODEL DRAW PROBABILITY")
+print("=" * 70)
+
+print(
+    actual_draws_df[
+        [
+            "season",
+            "round",
+            "date",
+            "home_team",
+            "away_team",
+            "prob_A",
+            "prob_D",
+            "prob_H",
+            "predicted_result"
+        ]
+    ]
+    .head(30)
+    .to_string(index=False)
+)
+
+
+
+# Display lowest Draw-probability actual draws
+print("\n" + "=" * 70)
+print("BOTTOM 20 ACTUAL DRAWS BY MODEL DRAW PROBABILITY")
+print("=" * 70)
+
+print(
+    actual_draws_df[
+        [
+            "season",
+            "round",
+            "date",
+            "home_team",
+            "away_team",
+            "prob_A",
+            "prob_D",
+            "prob_H",
+            "predicted_result"
+        ]
+    ]
+    .tail(20)
+    .to_string(index=False)
+)
+
+
+
+# Show the actual draws where Draw was the highest probability
+draw_highest_df = actual_draws_df[
+    actual_draws_df["prob_D"]
+    >=
+    actual_draws_df[
+        ["prob_A", "prob_H"]
+    ].max(axis=1)
+]
+
+print("\n" + "=" * 70)
+print("ACTUAL DRAWS WHERE DRAW WAS THE TOP PREDICTION")
+print("=" * 70)
+
+if len(draw_highest_df) == 0:
+    print("None")
+
+else:
+    print(
+        draw_highest_df[
+            [
+                "season",
+                "round",
+                "date",
+                "home_team",
+                "away_team",
+                "prob_A",
+                "prob_D",
+                "prob_H",
+                "predicted_result"
+            ]
+        ].to_string(index=False)
+    )
+
+
+
+# Save detailed Draw analysis
+draw_analysis_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_actual_draw_analysis.csv"
+)
+
+actual_draws_df.to_csv(
+    draw_analysis_path,
+    index=False
+)
+
+print(
+    "\nSaved actual Draw analysis:",
+    draw_analysis_path
+)
+
+
+
+
+print("\n")
+
+
+# V4-I STEP 4 — FULL OOS PERFORMANCE EVALUATION
+# Load OOS predictions
+v4i_oos_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_oos = pd.read_csv(v4i_oos_path)
+
+
+# Actual and predicted results
+y_true = v4i_oos["result"]
+
+y_pred = v4i_oos["predicted_result"]
+
+
+# Probability columns
+probabilities = v4i_oos[
+    ["prob_A", "prob_D", "prob_H"]
+].values
+
+classes = ["A", "D", "H"]
+
+
+# Accuracy
+accuracy = accuracy_score(y_true, y_pred)
+
+
+# Log Loss
+logloss = log_loss(
+    y_true,
+    probabilities,
+    labels=classes
+)
+
+
+# Multiclass Brier Score
+class_to_index = {
+    "A": 0,
+    "D": 1,
+    "H": 2
+}
+
+y_true_index = np.array(
+    [class_to_index[value] for value in y_true]
+)
+
+y_true_one_hot = np.zeros_like(
+    probabilities
+)
+
+y_true_one_hot[
+    np.arange(len(y_true_index)),
+    y_true_index
+] = 1
+
+
+brier = np.mean(
+    np.sum(
+        (probabilities - y_true_one_hot) ** 2,
+        axis=1
+    )
+)
+
+
+# Normalized Brier
+normalized_brier = brier / 3
+
+
+# Confusion Matrix
+cm = confusion_matrix(
+    y_true,
+    y_pred,
+    labels=classes
+)
+
+
+# Print results
+print("\n" + "=" * 70)
+print("V4-I FULL OOS PERFORMANCE")
+print("=" * 70)
+
+print(f"OOS matches:       {len(v4i_oos):,}")
+print(f"Accuracy:          {accuracy:.4f}")
+print(f"Log Loss:          {logloss:.4f}")
+print(f"Brier Score:       {brier:.4f}")
+print(f"Normalized Brier:  {normalized_brier:.4f}")
+
+print("\n" + "=" * 70)
+print("CONFUSION MATRIX")
+print("=" * 70)
+
+confusion_df = pd.DataFrame(
+    cm,
+    index=["Actual A", "Actual D", "Actual H"],
+    columns=["Pred A", "Pred D", "Pred H"]
+)
+
+print(confusion_df)
+
+
+# Per-class recall
+print("\n" + "=" * 70)
+print("PER-CLASS RECALL")
+print("=" * 70)
+
+for i, class_name in enumerate(classes):
+
+    actual_count = cm[i].sum()
+
+    correct_count = cm[i, i]
+
+    recall = (
+        correct_count / actual_count
+        if actual_count > 0
+        else 0
+    )
+
+    print(
+        f"{class_name}: "
+        f"{correct_count}/{actual_count} "
+        f"= {recall:.4%}"
+    )
+
+
+
+# Average predicted probabilities
+print("\n" + "=" * 70)
+print("AVERAGE PREDICTED PROBABILITIES")
+print("=" * 70)
+
+print(
+    f"Average Away probability:  "
+    f"{v4i_oos['prob_A'].mean():.4f}"
+)
+
+print(
+    f"Average Draw probability:  "
+    f"{v4i_oos['prob_D'].mean():.4f}"
+)
+
+print(
+    f"Average Home probability:  "
+    f"{v4i_oos['prob_H'].mean():.4f}"
+)
+
+
+
+# Actual outcome frequencies
+print("\n" + "=" * 70)
+print("ACTUAL OUTCOME FREQUENCIES")
+print("=" * 70)
+
+actual_frequency = (
+    y_true.value_counts(normalize=True)
+    .reindex(classes)
+)
+
+print(actual_frequency)
+
+
+# Predicted class frequencies
+print("\n" + "=" * 70)
+print("PREDICTED CLASS FREQUENCIES")
+print("=" * 70)
+
+predicted_frequency = (
+    y_pred.value_counts(normalize=True)
+    .reindex(classes)
+    .fillna(0)
+)
+
+print(predicted_frequency)
+
+
+print("\n")
+
+# V4-I STEP 5 — PROBABILITY DISTRIBUTIONS BY ACTUAL RESULT
+# Load OOS predictions
+v4i_oos_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_oos = pd.read_csv(v4i_oos_path)
+
+
+# Probability summary by ACTUAL result
+print("\n" + "=" * 70)
+print("V4-I PROBABILITY DISTRIBUTIONS BY ACTUAL RESULT")
+print("=" * 70)
+
+probability_summary = (
+    v4i_oos
+    .groupby("result")[["prob_A", "prob_D", "prob_H"]]
+    .agg(["mean", "std", "min", "median", "max"])
+    .round(4)
+)
+
+print(probability_summary)
+
+
+# Mean probability assigned to the CORRECT outcome
+print("\n" + "=" * 70)
+print("AVERAGE PROBABILITY ASSIGNED TO ACTUAL OUTCOME")
+print("=" * 70)
+
+for result in ["A", "D", "H"]:
+
+    subset = v4i_oos[
+        v4i_oos["result"] == result
+    ]
+
+    correct_probability = subset[
+        f"prob_{result}"
+    ]
+
+    print(
+        f"Actual {result}: "
+        f"mean probability = "
+        f"{correct_probability.mean():.4f}"
+    )
+
+
+# Probability of actual outcome >= thresholds
+print("\n" + "=" * 70)
+print("ACTUAL OUTCOME PROBABILITY THRESHOLDS")
+print("=" * 70)
+
+thresholds = [0.20, 0.30, 0.40, 0.50]
+
+for result in ["A", "D", "H"]:
+
+    subset = v4i_oos[
+        v4i_oos["result"] == result
+    ]
+
+    probabilities = subset[
+        f"prob_{result}"
+    ]
+
+    print(f"\nActual {result}:")
+
+    for threshold in thresholds:
+
+        count = (
+            probabilities >= threshold
+        ).sum()
+
+        total = len(probabilities)
+
+        percentage = count / total
+
+        print(
+            f"  P({result}) >= {threshold:.0%}: "
+            f"{count}/{total} "
+            f"= {percentage:.2%}"
+        )
+
+
+# Highest-probability outcome
+print("\n" + "=" * 70)
+print("ACTUAL OUTCOME AS HIGHEST-PROBABILITY CLASS")
+print("=" * 70)
+
+for result in ["A", "D", "H"]:
+
+    subset = v4i_oos[
+        v4i_oos["result"] == result
+    ]
+
+    probabilities = subset[
+        ["prob_A", "prob_D", "prob_H"]
+    ]
+
+    predicted_as_actual = (
+        probabilities.idxmax(axis=1)
+        == f"prob_{result}"
+    )
+
+    count = predicted_as_actual.sum()
+
+    total = len(subset)
+
+    print(
+        f"Actual {result}: "
+        f"{count}/{total} "
+        f"= {count / total:.2%}"
+    )
+
+
+print("\n")
+
+# V4-I STEP 6 — DRAW PROBABILITY DISCRIMINATION
+# Load OOS predictions
+v4i_oos_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_oos = pd.read_csv(v4i_oos_path)
+
+
+# Create Draw / Not Draw target
+v4i_oos["actual_draw"] = (
+    v4i_oos["result"] == "D"
+).astype(int)
+
+
+# Draw probability bins
+bins = [
+    0.00,
+    0.10,
+    0.15,
+    0.20,
+    0.25,
+    0.30,
+    0.35,
+    0.40,
+    1.00
+]
+
+labels = [
+    "0-10%",
+    "10-15%",
+    "15-20%",
+    "20-25%",
+    "25-30%",
+    "30-35%",
+    "35-40%",
+    "40%+"
+]
+
+v4i_oos["draw_probability_bin"] = pd.cut(
+    v4i_oos["prob_D"],
+    bins=bins,
+    labels=labels,
+    include_lowest=True,
+    right=False
+)
+
+
+# Bin analysis
+draw_discrimination = (
+    v4i_oos
+    .groupby(
+        "draw_probability_bin",
+        observed=False
+    )
+    .agg(
+        matches=("result", "size"),
+        actual_draws=("actual_draw", "sum"),
+        mean_draw_probability=("prob_D", "mean"),
+        actual_draw_rate=("actual_draw", "mean")
+    )
+    .reset_index()
+)
+
+
+# Difference between predicted and actual
+draw_discrimination["calibration_error"] = (
+    draw_discrimination["actual_draw_rate"]
+    - draw_discrimination["mean_draw_probability"]
+)
+
+
+# Print
+print("\n" + "=" * 75)
+print("V4-I DRAW PROBABILITY DISCRIMINATION")
+print("=" * 75)
+
+print(
+    draw_discrimination.to_string(
+        index=False
+    )
+)
+
+
+# Threshold analysis
+print("\n" + "=" * 75)
+print("V4-I DRAW THRESHOLD ANALYSIS")
+print("=" * 75)
+
+thresholds = [
+    0.15,
+    0.20,
+    0.25,
+    0.30,
+    0.35,
+    0.40
+]
+
+for threshold in thresholds:
+
+    subset = v4i_oos[
+        v4i_oos["prob_D"] >= threshold
+    ]
+
+    matches = len(subset)
+
+    draws = subset["actual_draw"].sum()
+
+    draw_rate = (
+        draws / matches
+        if matches > 0
+        else 0
+    )
+
+    print(
+        f"P(D) >= {threshold:.0%}: "
+        f"{matches} matches | "
+        f"{draws} actual draws | "
+        f"actual draw rate = {draw_rate:.2%}"
+    )
+
+
+    print("\n")
+
+# V4-I STEP 7 — OOS PERFORMANCE BY SEASON
+# Load OOS predictions
+v4i_oos_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_oos_predictions.csv"
+)
+
+v4i_oos = pd.read_csv(v4i_oos_path)
+
+
+# Helper function
+def calculate_multiclass_brier(y_true, probabilities):
+
+    classes = ["A", "D", "H"]
+
+    class_to_index = {
+        "A": 0,
+        "D": 1,
+        "H": 2
+    }
+
+    y_index = np.array(
+        [class_to_index[value] for value in y_true]
+    )
+
+    one_hot = np.zeros_like(probabilities)
+
+    one_hot[
+        np.arange(len(y_index)),
+        y_index
+    ] = 1
+
+    return np.mean(
+        np.sum(
+            (probabilities - one_hot) ** 2,
+            axis=1
+        )
+    )
+
+
+# Analyze each season
+season_results = []
+
+
+for season, group in v4i_oos.groupby("season"):
+
+    y_true = group["result"]
+
+    y_pred = group["predicted_result"]
+
+    probabilities = group[
+        ["prob_A", "prob_D", "prob_H"]
+    ].values
+
+    accuracy = accuracy_score(
+        y_true,
+        y_pred
+    )
+
+    logloss = log_loss(
+        y_true,
+        probabilities,
+        labels=["A", "D", "H"]
+    )
+
+    brier = calculate_multiclass_brier(
+        y_true,
+        probabilities
+    )
+
+    actual_draws = (
+        y_true == "D"
+    ).sum()
+
+    predicted_draws = (
+        y_pred == "D"
+    ).sum()
+
+    actual_away = (
+        y_true == "A"
+    ).sum()
+
+    predicted_away = (
+        y_pred == "A"
+    ).sum()
+
+    actual_home = (
+        y_true == "H"
+    ).sum()
+
+    predicted_home = (
+        y_pred == "H"
+    ).sum()
+
+    draw_recall = (
+        predicted_draws / actual_draws
+        if actual_draws > 0
+        else np.nan
+    )
+
+    away_correct = (
+        (y_true == "A") &
+        (y_pred == "A")
+    ).sum()
+
+    away_recall = (
+        away_correct / actual_away
+        if actual_away > 0
+        else np.nan
+    )
+
+    home_correct = (
+        (y_true == "H") &
+        (y_pred == "H")
+    ).sum()
+
+    home_recall = (
+        home_correct / actual_home
+        if actual_home > 0
+        else np.nan
+    )
+
+    season_results.append({
+
+        "season": season,
+
+        "matches": len(group),
+
+        "accuracy": accuracy,
+
+        "log_loss": logloss,
+
+        "brier": brier,
+
+        "actual_draw_rate": (
+            actual_draws / len(group)
+        ),
+
+        "mean_draw_probability": (
+            group["prob_D"].mean()
+        ),
+
+        "predicted_draws": predicted_draws,
+
+        "draw_recall": draw_recall,
+
+        "away_recall": away_recall,
+
+        "home_recall": home_recall,
+
+        "predicted_home_rate": (
+            predicted_home / len(group)
+        ),
+
+        "predicted_away_rate": (
+            predicted_away / len(group)
+        )
+
+    })
+
+
+season_results_df = pd.DataFrame(
+    season_results
+)
+
+
+# Sort chronologically
+season_results_df = (
+    season_results_df
+    .sort_values("season")
+    .reset_index(drop=True)
+)
+
+
+# Display
+print("\n" + "=" * 90)
+print("V4-I OOS PERFORMANCE BY SEASON")
+print("=" * 90)
+
+print(
+    season_results_df.to_string(
+        index=False,
+        float_format=lambda x: f"{x:.4f}"
+    )
+)
+
+
+# Save
+season_results_path = (
+    BASE_DIR
+    / "data"
+    / "predictions"
+    / "champions_league_v4i_season_analysis.csv"
+)
+
+season_results_df.to_csv(
+    season_results_path,
+    index=False
+)
+
+print(
+    "\nSaved season analysis:",
+    season_results_path
+)
